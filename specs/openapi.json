@@ -208,7 +208,7 @@
         "schema": {
           "type": "string"
         },
-        "description": "Billing wallet for this request. A team id you belong to reads that team's limits / bills a create to that team. Your own account id is personal. Sandboxes, snapshots, and environments stay creator-private."
+        "description": "Billing wallet for this request: an organization you belong to, by id (`team_…`) or by name as `GET /orgs` lists it (case-insensitive), or `personal`. Omitted, the account's active wallet applies (`PATCH /orgs/active`; personal until set). Two organizations sharing the name answer `409 ambiguous_org` and need the id. Sandboxes, snapshots, and environments stay creator-private."
       },
       "OrgHeader": {
         "name": "X-Boat-Org",
@@ -1351,7 +1351,7 @@
           },
           "org": {
             "type": "string",
-            "description": "Bill this sandbox to a team you belong to (the team's shared wallet). Your own account id means personal billing. Listing, snapshots, and environments stay yours: the org is a wallet, not a shared workspace. Takes precedence over `teamId` and over the `X-Boat-Org` / `?org=` request scope."
+            "description": "Bill this sandbox to an organization you belong to (its shared wallet), by id or by name as `GET /orgs` lists it; `personal` or your own account id means personal billing. Omitted, the `X-Boat-Org` / `?org=` request scope applies, then the account's active wallet (`PATCH /orgs/active`), then personal. Listing, snapshots, and environments stay yours: the org is a wallet, not a shared workspace. Takes precedence over `teamId`."
           },
           "teamId": {
             "type": "string",
@@ -2076,6 +2076,139 @@
                       "null"
                     ],
                     "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "Org": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "type",
+          "role",
+          "memberCount",
+          "active"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Your account id for the personal row, `team_…` for an organization."
+          },
+          "name": {
+            "type": "string",
+            "description": "Accepted wherever an org is passed, like the id."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "org"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "member"
+            ]
+          },
+          "memberCount": {
+            "type": "integer"
+          },
+          "subscriptionStatus": {
+            "type": "string",
+            "description": "Stripe status of the organization's plan; absent on the personal row."
+          },
+          "active": {
+            "type": "boolean",
+            "description": "The wallet new sandboxes bill when a request names none."
+          }
+        }
+      },
+      "OrgListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "orgs",
+              "activeWalletChosen"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "org.list"
+              },
+              "activeWalletChosen": {
+                "type": "boolean",
+                "description": "Whether this account ever set its active wallet. `false` means personal by default, never a choice."
+              },
+              "orgs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Org"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ActiveOrgUpdateRequest": {
+        "type": "object",
+        "required": [
+          "org"
+        ],
+        "properties": {
+          "org": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Organization id or name you belong to; `personal`, your own id or `null` for personal."
+          }
+        }
+      },
+      "ActiveOrgResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "active"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "org.active_updated"
+              },
+              "active": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "name",
+                  "type"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "personal",
+                      "org"
+                    ]
                   }
                 }
               }
@@ -4575,6 +4708,142 @@
         }
       }
     },
+    "/orgs": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "List organizations",
+        "description": "The wallets this account can bill: your personal account first, then every organization you belong to, each with its id and name. Either spelling works wherever an org is passed (`org`, `X-Boat-Org`, `teamId`). `active` marks the wallet new sandboxes bill when a request names none; change it with `PATCH /orgs/active`.",
+        "operationId": "listOrganizations",
+        "responses": {
+          "200": {
+            "description": "Personal account and organizations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgListResponse"
+                },
+                "examples": {
+                  "orgs": {
+                    "value": {
+                      "ok": true,
+                      "type": "org.list",
+                      "activeWalletChosen": true,
+                      "orgs": [
+                        {
+                          "id": "4f1c2e0a-7b3d-4a6e-9c8b-2d5e1f0a3b7c",
+                          "name": "Personal",
+                          "type": "personal",
+                          "role": "owner",
+                          "memberCount": 1,
+                          "active": false
+                        },
+                        {
+                          "id": "team_583fd89e-6d29-4007-b48d-52477656cb0f",
+                          "name": "acme",
+                          "type": "org",
+                          "role": "owner",
+                          "memberCount": 3,
+                          "subscriptionStatus": "active",
+                          "active": true
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/orgs/active": {
+      "patch": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Set the active organization",
+        "description": "Set the wallet new sandboxes bill when a request names none, for this account on every client: the API, the CLI (`boat org switch` sets the same value) and the dashboard. Pass an organization id or name you belong to, or `personal` (or `null`) for your own account. `GET /limits` follows it. Sandboxes already running keep the wallet they were created with; leaving or deleting the organization resets the account to personal.",
+        "operationId": "setActiveOrganization",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActiveOrgUpdateRequest"
+              },
+              "examples": {
+                "byName": {
+                  "value": {
+                    "org": "acme"
+                  }
+                },
+                "personal": {
+                  "value": {
+                    "org": "personal"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The wallet now active.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveOrgResponse"
+                },
+                "examples": {
+                  "org": {
+                    "value": {
+                      "ok": true,
+                      "type": "org.active_updated",
+                      "active": {
+                        "id": "team_583fd89e-6d29-4007-b48d-52477656cb0f",
+                        "name": "acme",
+                        "type": "org"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "`not_org_member`: no organization with that id or name that you belong to.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`ambiguous_org`: several of your organizations share that name; pass the id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/account/data-retention": {
       "get": {
         "tags": [
@@ -4684,7 +4953,7 @@
           "Boat"
         ],
         "summary": "Get Boat limits",
-        "description": "Check remaining machine starts, compute time, credits, access readiness, and concurrent-sandbox capacity for the authenticated account. Pass `org` / `X-Boat-Org` (or `teamId`) to read a team wallet you belong to.",
+        "description": "Check remaining machine starts, compute time, credits, access readiness, and concurrent-sandbox capacity for the wallet a create would bill: the `org` / `X-Boat-Org` you pass (id or name), else the account's active wallet, else personal. The response carries `teamId` when an organization wallet was read.",
         "operationId": "limits",
         "parameters": [
           {
