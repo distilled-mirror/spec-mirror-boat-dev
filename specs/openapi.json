@@ -7481,9 +7481,9 @@
             "schema": {
               "type": "integer",
               "minimum": 1,
-              "maximum": 524288
+              "maximum": 8388608
             },
-            "description": "Cap each returned log to its last N bytes. Defaults to 524288 (512 KiB)."
+            "description": "Cap each returned log to its last N bytes. Defaults to 8388608 (8 MiB)."
           }
         ],
         "responses": {
