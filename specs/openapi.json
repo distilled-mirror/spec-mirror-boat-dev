@@ -3026,6 +3026,10 @@
                   "null"
                 ]
               },
+              "oomKilled": {
+                "type": "boolean",
+                "description": "True when the memory ceiling killed the command or one of its processes and the command failed."
+              },
               "stdout": {
                 "type": "string"
               },
@@ -3164,6 +3168,10 @@
                   "string",
                   "null"
                 ]
+              },
+              "oomKilled": {
+                "type": "boolean",
+                "description": "True when the memory ceiling killed the command or one of its processes and the command failed."
               },
               "command": {
                 "type": [
