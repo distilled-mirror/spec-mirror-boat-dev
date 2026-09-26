@@ -348,8 +348,17 @@
               "running",
               "archiving",
               "archived",
-              "error"
-            ]
+              "error",
+              "cancelled"
+            ],
+            "description": "`cancelled` is terminal: a create or fork that could not get a machine was removed. `GET /sandboxes/{sandboxId}` reports it once, with only `id`, `state` and `error`, then answers 404."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the sandbox is stopped, failed or cancelled, or null."
           },
           "type": {
             "type": "string",
@@ -381,6 +390,18 @@
               1
             ]
           },
+          "machineProvider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "hetzner",
+              "baremetal",
+              null
+            ],
+            "description": "Machine provider of the machine the sandbox is on, or null when it has no machine."
+          },
           "url": {
             "type": [
               "string",
@@ -395,6 +416,16 @@
               "null"
             ],
             "description": "Machine IPv6 or IPv4 address when assigned."
+          },
+          "sshEndpoint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Public IPv4 `host:port` that forwards to the sandbox SSH server. Set only when the machine has no public IPv4 of its own; null otherwise. Connect with `ssh -p <port> user@<host>`.",
+            "examples": [
+              "203.0.113.10:22001"
+            ]
           },
           "createdAt": {
             "type": [
@@ -439,6 +470,33 @@
             ],
             "format": "date-time",
             "description": "Timestamp of the most recent successfully completed snapshot, or null."
+          },
+          "snapshotVerifiedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Last time a snapshot confirmed the sandbox's saved state, including checks that found nothing new to save. Falls back to `snapshotCompletedAt`; null if never."
+          },
+          "team": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The organization billed for this sandbox, or null when the owner is billed.",
+            "required": [
+              "id",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
           },
           "subdomain": {
             "type": [
@@ -923,6 +981,19 @@
               "acme/web"
             ]
           },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "examples": [
+              "https://github.com/acme/web"
+            ]
+          },
           "private": {
             "type": "boolean"
           },
@@ -935,6 +1006,14 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "lastUserCommitAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Reserved; always null."
           }
         }
       },
@@ -1251,6 +1330,143 @@
           },
           "creditSecondsPerDollar": {
             "type": "integer"
+          },
+          "sandboxPlanKey": {
+            "type": "string",
+            "description": "Current plan key, or `trial` before any payment.",
+            "examples": [
+              "box_20"
+            ]
+          },
+          "sandboxPlanDollars": {
+            "type": "number",
+            "description": "Monthly price of the current plan in dollars."
+          },
+          "sandboxPlanTiers": {
+            "type": "array",
+            "description": "Every plan tier and its limits.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "examples": [
+                    "box_20"
+                  ]
+                },
+                "dollars": {
+                  "type": "number"
+                },
+                "displayPrice": {
+                  "type": "string",
+                  "examples": [
+                    "$20/mo"
+                  ]
+                },
+                "maxActiveSandboxes": {
+                  "type": "integer"
+                },
+                "startsPerMinute": {
+                  "type": "integer"
+                },
+                "startsPerHour": {
+                  "type": "integer"
+                },
+                "startsPerDay": {
+                  "type": "integer"
+                },
+                "includedSeconds": {
+                  "type": "integer",
+                  "description": "Machine time included each month."
+                },
+                "purchasable": {
+                  "type": "boolean",
+                  "description": "Whether this tier can be bought right now."
+                }
+              }
+            }
+          },
+          "accountPlan": {
+            "type": "string",
+            "examples": [
+              "user",
+              "service"
+            ]
+          },
+          "plan": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`service` for service accounts, otherwise null."
+          },
+          "planName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`Service` for service accounts, otherwise null."
+          },
+          "serviceAccount": {
+            "type": "boolean"
+          },
+          "unlimited": {
+            "type": "boolean",
+            "description": "True when the account has no machine-time or start limits."
+          },
+          "hasSeatPlan": {
+            "type": "boolean",
+            "description": "True when an organization has an active per-seat plan."
+          },
+          "last24hUsageSeconds": {
+            "type": "integer",
+            "description": "Machine time used in the last 24 hours, in seconds. Useful to estimate how long the balance lasts."
+          },
+          "trialComputeCapSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Lifetime machine-time allowance for a trial that never paid. Null once the account has paid or has a plan."
+          },
+          "trialLine": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The trial limits in one readable line. Null on paid accounts."
+          },
+          "giftLimit": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Fair-use caps on a gifted account, or null when there are none.",
+            "properties": {
+              "maxActiveSandboxes": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "maxTtlSeconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "line": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The caps in one readable line."
+              },
+              "message": {
+                "type": "string",
+                "description": "The same text shown when a cap is hit."
+              }
+            }
           },
           "billingStatus": {
             "type": "string",
@@ -1776,6 +1992,21 @@
             ],
             "format": "uuid"
           },
+          "latestVersionNumber": {
+            "type": "integer",
+            "description": "Number of the latest version, 0 when there is none.",
+            "examples": [
+              3
+            ]
+          },
+          "safetyAnsweredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the owner last answered whether this environment is safe for third parties, or null if never asked."
+          },
           "safeForThirdParties": {
             "type": "boolean",
             "description": "When true the environment passes nothing to a sandbox (repos, secrets, and all credentials withheld), overriding the fine-grained flags below. Use for sandboxes handed to third parties."
@@ -1827,6 +2058,14 @@
           "environments"
         ],
         "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "type": {
+            "type": "string",
+            "const": "environments.list"
+          },
           "environments": {
             "type": "array",
             "items": {
@@ -1965,8 +2204,20 @@
           "upgraded": {
             "type": "integer"
           },
+          "upgradedLive": {
+            "type": "integer",
+            "description": "Running sandboxes that received the new configuration now."
+          },
+          "upgradedStopped": {
+            "type": "integer",
+            "description": "Stopped sandboxes moved to the latest version; they pick it up when they next resume."
+          },
           "failed": {
             "type": "integer"
+          },
+          "latestVersionId": {
+            "type": "string",
+            "description": "Id of the version the sandboxes were moved to."
           }
         }
       },
@@ -2057,6 +2308,10 @@
               "user": {
                 "type": "object",
                 "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Your account id."
+                  },
                   "login": {
                     "type": "string"
                   },
@@ -2065,6 +2320,93 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "connectionMethod": {
+                    "type": "string",
+                    "enum": [
+                      "github",
+                      "google",
+                      "email",
+                      "service"
+                    ],
+                    "description": "The login method the account was created with."
+                  },
+                  "connectionMethods": {
+                    "type": "array",
+                    "description": "Every login method linked to the account.",
+                    "items": {
+                      "type": "string",
+                      "examples": [
+                        "github"
+                      ]
+                    }
+                  },
+                  "accountPlan": {
+                    "type": "string",
+                    "examples": [
+                      "user",
+                      "service"
+                    ]
+                  },
+                  "serviceAccount": {
+                    "type": "boolean"
+                  },
+                  "accountStatus": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "suspended",
+                      "closed"
+                    ]
+                  },
+                  "suspended": {
+                    "type": "boolean"
+                  },
+                  "suspendedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "suspendedReason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "closed": {
+                    "type": "boolean"
+                  },
+                  "closedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "purgeAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time",
+                    "description": "When a closed account's data is scheduled for deletion."
+                  },
+                  "purgedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time",
+                    "description": "When a closed account's data was deleted."
+                  },
+                  "closureContactEmail": {
+                    "type": "string",
+                    "description": "Address to contact about a suspended or closed account."
                   },
                   "zeroDataRetention": {
                     "type": "boolean",
@@ -2248,6 +2590,13 @@
               "environmentId": {
                 "type": "string"
               },
+              "subenvironmentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Id of the default environment. `environmentId` is the id of its latest version."
+              },
               "selectedRepositories": {
                 "type": "array",
                 "items": {
@@ -2280,6 +2629,13 @@
               "environmentId": {
                 "type": "string"
               },
+              "subenvironmentId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Id of the default environment. `environmentId` is the id of its new version."
+              },
               "selectedRepositories": {
                 "type": "array",
                 "items": {
@@ -2308,6 +2664,10 @@
               },
               "environmentId": {
                 "type": "string"
+              },
+              "subenvironmentId": {
+                "type": "string",
+                "description": "Id of the default environment. `environmentId` is the id of its latest version."
               },
               "envContents": {
                 "type": "string"
@@ -2374,6 +2734,10 @@
               },
               "sandbox": {
                 "$ref": "#/components/schemas/Sandbox"
+              },
+              "giftLimitNotice": {
+                "type": "string",
+                "description": "Present when a fair-use cap on a gifted account shortened the requested auto-stop time."
               }
             }
           }
@@ -2399,8 +2763,10 @@
               "status": {
                 "type": "string",
                 "enum": [
-                  "provisioning"
-                ]
+                  "provisioning",
+                  "ready"
+                ],
+                "description": "`ready` only when an idempotent retry finds a sandbox that is already past provisioning."
               },
               "ttlSeconds": {
                 "type": [
@@ -2410,6 +2776,10 @@
               },
               "sandbox": {
                 "$ref": "#/components/schemas/Sandbox"
+              },
+              "giftLimitNotice": {
+                "type": "string",
+                "description": "Present when a fair-use cap on a gifted account shortened the requested auto-stop time."
               }
             }
           }
@@ -2451,6 +2821,14 @@
                     "type": "null"
                   }
                 ]
+              },
+              "giftLimitNotice": {
+                "type": "string",
+                "description": "Present on resume or fork when a fair-use cap on a gifted account shortened the requested auto-stop time."
+              },
+              "conversationId": {
+                "type": "string",
+                "description": "On interrupt, the conversation whose turn was interrupted."
               }
             }
           }
@@ -2667,6 +3045,48 @@
               },
               "is_reverted": {
                 "type": "boolean"
+              },
+              "error": {
+                "type": "string",
+                "description": "Why the prompt failed. Present only when `status` is `failed`."
+              },
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "filename": {
+                      "type": "string"
+                    },
+                    "mimeType": {
+                      "type": "string"
+                    },
+                    "base64Data": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "citations": {
+                "type": "array",
+                "description": "Earlier chat events quoted in this prompt.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "eventId": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "author": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                }
               }
             }
           }
@@ -2794,6 +3214,9 @@
               "is_streaming": {
                 "type": "boolean",
                 "description": "True when this response is a streaming partial rather than the final assistant message."
+              },
+              "is_reverted": {
+                "type": "boolean"
               }
             }
           }
@@ -3527,6 +3950,23 @@
                 "examples": [
                   "user"
                 ]
+              },
+              "sshEndpoint": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Public IPv4 `host:port` that forwards to the sandbox SSH server, set only when the machine has no public IPv4 of its own. Connect with `ssh -p <port> user@<host>`.",
+                "examples": [
+                  "203.0.113.10:22001"
+                ]
+              },
+              "hostKey": {
+                "type": "string",
+                "description": "The sandbox SSH server's public host key. Pin it in `known_hosts`.",
+                "examples": [
+                  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+                ]
               }
             }
           }
@@ -3923,7 +4363,10 @@
             "description": "`base` (full) or `incremental` (delta on a base). `null` for legacy snapshots."
           },
           "generation": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "description": "Position in the incremental chain (0 = base)."
           },
           "chainId": {
@@ -3945,11 +4388,17 @@
             "format": "date-time"
           },
           "sizeBytes": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "description": "Bytes this snapshot added (its delta), not the full restored size."
           },
           "fileCount": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "description": "Inventory entries alive in the chain at this generation (includes base-image system entries)."
           },
           "contentSizeBytes": {
@@ -4312,10 +4761,16 @@
             "type": "string"
           },
           "sizeBytes": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "sha256": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "signedUrl": {
             "type": "string",
