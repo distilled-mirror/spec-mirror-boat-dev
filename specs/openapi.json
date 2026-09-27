@@ -4904,6 +4904,26 @@
               "completed"
             ]
           },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "removing",
+              "waiting_for_uploads",
+              "kept_for_newer_snapshots",
+              "waiting_for_restore",
+              "retrying",
+              "completed"
+            ],
+            "description": "What the background purge is doing. The target is already gone from every list, restore and fork once the operation exists. `waiting_for_uploads`: stored data is erased once the last upload URL issued for it expires (`expectedBy`). `kept_for_newer_snapshots`: a newer snapshot you kept is built on this one; its data goes when they go. `waiting_for_restore`: a sandbox is still restoring from it. `retrying`: a transient fault, retried automatically."
+          },
+          "expectedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When `waiting_for_uploads` ends."
+          },
           "attemptCount": {
             "type": "integer",
             "minimum": 0
@@ -4920,6 +4940,33 @@
             "format": "date-time"
           }
         }
+      },
+      "DeletionOperationListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "operations"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "snapshot.deleting"
+                ]
+              },
+              "operations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DeletionOperation"
+                }
+              }
+            }
+          }
+        ]
       },
       "DeletionOperationResponse": {
         "allOf": [
@@ -8631,6 +8678,46 @@
             "$ref": "#/components/responses/NotFound"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Permanently delete all snapshots of a sandbox",
+        "description": "Accept irreversible deletion of every unpinned snapshot of this sandbox. The sandbox itself and its named snapshots stay. Snapshots disappear from lists, restores and forks immediately; their stored data is purged in the background. Set `X-Ascii-Confirm-Delete` to the sandbox id.",
+        "operationId": "deleteSandboxSnapshots",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "$ref": "#/components/parameters/ConfirmDelete"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "One accepted deletion operation per snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionOperationListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
       }
     },
     "/sandboxes/{sandboxId}/snapshots/latest": {
@@ -8783,7 +8870,7 @@
           "Boat"
         ],
         "summary": "Permanently delete snapshot data",
-        "description": "Accept irreversible background deletion of an unpinned snapshot owned by the authenticated account. Snapshots required by another incremental snapshot or active restore return `409`. Poll the returned operation until `completed`.",
+        "description": "Accept irreversible deletion of an unpinned snapshot owned by the authenticated account. Any such snapshot is accepted: it disappears from lists, restores and forks immediately, and its stored data is purged in the background once nothing still reads it (see the operation's `stage`). `409` only means `X-Ascii-Confirm-Delete` is missing or wrong.",
         "operationId": "deleteSnapshot",
         "parameters": [
           {
