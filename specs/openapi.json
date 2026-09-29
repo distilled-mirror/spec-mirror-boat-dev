@@ -460,6 +460,10 @@
             "format": "uri",
             "description": "Secret-bearing desktop stream URL when available. Redact from logs."
           },
+          "snapshots": {
+            "type": "boolean",
+            "description": "False when the sandbox was created with snapshots off."
+          },
           "snapshotAvailable": {
             "type": "boolean"
           },
@@ -1559,6 +1563,11 @@
             "type": "boolean",
             "default": false,
             "description": "Create a sandbox with none of the secrets attached to your account (no environment variables, secret files, or credentials), confined to itself so it cannot act on your account or other sandboxes. For sandboxes you give to your own users. SSH, SCP, desktop, snapshots, and public URLs still work; pass `env` to give the sandbox a secret of its own. A fork of a no-env sandbox is always no-env. Equivalent to attaching an environment marked \"safe for third parties\"."
+          },
+          "snapshots": {
+            "type": "boolean",
+            "default": true,
+            "description": "Pass `false` to never snapshot this sandbox. Nothing is captured in the background, so it pays no CPU or memory for it, and stopping it erases its disk the way zero data retention does. It cannot be resumed, forked, or saved as a named snapshot, and if its machine fails there is no backup to rebuild it from."
           },
           "setupScript": {
             "type": "string",
@@ -3412,6 +3421,52 @@
             "type": "boolean",
             "default": false,
             "description": "Start the command in the background and return a process id immediately instead of waiting for it to finish. Output goes to a log file on the sandbox; poll the status endpoint for it."
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false,
+            "description": "Stream the output as the command writes it: the response is newline-delimited JSON (application/x-ndjson), one CommandStreamFrame per line. Ignored with detached."
+          }
+        }
+      },
+      "CommandStreamFrame": {
+        "type": "object",
+        "description": "One line of a streamed command. `started` first, then `stdout`/`stderr` chunks, then exactly one `exit` (the synchronous result, without stdout/stderr) or `error`.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "started",
+              "stdout",
+              "stderr",
+              "exit",
+              "error"
+            ]
+          },
+          "data": {
+            "type": "string",
+            "description": "stdout/stderr: the chunk of output, UTF-8."
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "timedOut": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
           }
         }
       },
@@ -5031,6 +5086,17 @@
               "acceptedDeletionOperationsIrreversible": {
                 "type": "boolean",
                 "description": "Always true on updates. Disabling the policy does not cancel accepted deletion operations."
+              },
+              "snapshotsOff": {
+                "type": "boolean",
+                "description": "When true, every new sandbox of this account is created with snapshots off."
+              },
+              "snapshotsOffAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
               }
             }
           }
@@ -5038,13 +5104,15 @@
       },
       "DataRetentionUpdateRequest": {
         "type": "object",
-        "required": [
-          "enabled"
-        ],
+        "description": "Pass `enabled` to change zero data retention, or `snapshotsOff` alone to change the account's snapshots-off setting.",
         "additionalProperties": false,
         "properties": {
           "enabled": {
             "type": "boolean"
+          },
+          "snapshotsOff": {
+            "type": "boolean",
+            "description": "Turn snapshots off for every sandbox created from now on. Existing sandboxes keep their setting. While on, a create or fork that passes `snapshots: true` is refused with 409 `snapshots_off_for_account`."
           },
           "confirmation": {
             "type": "string",
@@ -7921,7 +7989,7 @@
           "Boat"
         ],
         "summary": "Execute a command in a sandbox",
-        "description": "Runs the command synchronously by default (timeout configurable via `timeoutSeconds`, 600s cap). With `detached: true` the command starts in the background and a process id is returned immediately; poll `/sandboxes/{sandboxId}/commands/{processId}` for status and logs. Returns 400 invalid_timeout when `timeoutSeconds` is not an integer in 1-600. Returns 409 boat_starting (retryable) while the sandbox is still provisioning -- wait until the sandbox state is ready before running commands. Command execution is never retried automatically: a 502 boat_direct_failed means the command may already be running on the sandbox.",
+        "description": "Runs the command synchronously by default (timeout configurable via `timeoutSeconds`, 600s cap). With `detached: true` the command starts in the background and a process id is returned immediately; poll `/sandboxes/{sandboxId}/commands/{processId}` for status and logs. With `stream: true` the output arrives as the command writes it, as newline-delimited JSON (`application/x-ndjson`): `{\"type\":\"started\"}`, then `{\"type\":\"stdout\"|\"stderr\",\"data\":\"...\"}` per chunk, and last `{\"type\":\"exit\",...}` (the synchronous result without stdout/stderr) or `{\"type\":\"error\",\"error\":\"...\",\"message\":\"...\"}`. Returns 400 invalid_timeout when `timeoutSeconds` is not an integer in 1-600. A command sent while the sandbox is still starting (right after a resume) waits up to 60s for it to be ready instead of failing; 409 boat_starting (retryable) is returned only if it is still not ready by then. Command execution is never retried automatically: a 502 boat_direct_failed means the command may already be running on the sandbox.",
         "operationId": "command",
         "parameters": [
           {
@@ -7940,7 +8008,7 @@
         },
         "responses": {
           "200": {
-            "description": "Command result (synchronous) or process start confirmation (detached).",
+            "description": "Command result (synchronous), process start confirmation (detached), or the output stream (`stream: true`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -7952,6 +8020,11 @@
                       "$ref": "#/components/schemas/CommandStartedResponse"
                     }
                   ]
+                }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandStreamFrame"
                 }
               }
             }
