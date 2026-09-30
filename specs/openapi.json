@@ -360,6 +360,29 @@
             ],
             "description": "Why the sandbox is stopped, failed or cancelled, or null."
           },
+          "health": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "description": "`degraded` when the machine is alive but Boat cannot fully reach it (for example a firewall rule inside the sandbox blocks the tunnel). The sandbox keeps running."
+          },
+          "healthReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the sandbox is degraded, or null."
+          },
+          "degradedSince": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the sandbox became degraded, or null."
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -501,6 +524,37 @@
                 "type": "string"
               }
             }
+          },
+          "createdBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display name (or email) of the person who created the sandbox. Organization members see every sandbox the organization pays for, so this says whose it is."
+          },
+          "createdById": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Account id of the person who created the sandbox."
+          },
+          "access": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "use",
+              "view"
+            ],
+            "description": "What you may do with this sandbox. `owner`: you created it. `use`: a teammate's organization sandbox that is `noEnv` (created with it, or shared and restarted), so you can open, run commands in, prompt, resume and stop it. `view`: a teammate's organization sandbox that still holds their personal logins, so you can see it and stop it until they share it (`POST /sandboxes/{sandboxId}/share`)."
+          },
+          "holdsCreatorLogins": {
+            "type": "boolean",
+            "description": "True while the sandbox still holds its creator's personal logins (GitHub token, model logins, secrets). Other members can only see such a sandbox."
+          },
+          "wipePendingUntilRestart": {
+            "type": "boolean",
+            "description": "True once the sandbox is shared but not restarted yet. Its creator's logins are wiped at its next start, and the organization can use it from then on."
           },
           "subdomain": {
             "type": [
@@ -798,7 +852,9 @@
           "sandbox.ready",
           "sandbox.error",
           "sandbox.archived",
-          "sandbox.hydrated"
+          "sandbox.hydrated",
+          "sandbox.degraded",
+          "sandbox.recovered"
         ]
       },
       "Webhook": {
@@ -933,9 +989,7 @@
           "data": {
             "type": "object",
             "required": [
-              "sandbox",
-              "previousState",
-              "state"
+              "sandbox"
             ],
             "properties": {
               "sandbox": {
@@ -955,10 +1009,19 @@
                 }
               },
               "previousState": {
-                "type": "string"
+                "type": "string",
+                "description": "On sandbox.ready, sandbox.error and sandbox.archived only."
               },
               "state": {
-                "type": "string"
+                "type": "string",
+                "description": "Absent on sandbox.hydrated."
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "On sandbox.degraded and sandbox.recovered. Why the sandbox is degraded (null on recovered)."
               }
             }
           }
@@ -1569,6 +1632,11 @@
             "default": true,
             "description": "Pass `false` to never snapshot this sandbox. Nothing is captured in the background, so it pays no CPU or memory for it, and stopping it erases its disk the way zero data retention does. It cannot be resumed, forked, or saved as a named snapshot, and if its machine fails there is no backup to rebuild it from."
           },
+          "failFast": {
+            "type": "boolean",
+            "default": false,
+            "description": "Pass `true` to get a sandbox only if a machine of this type is ready right now. The call answers within about 1.5 s: either the usual `202` with the sandbox, or `503` `no_ready_machine` with nothing created, billed, or counted against your start limits, so you can retry or fall back at once. Without it, a create waits for a machine to be built when none is ready. Works with `from`; fork and resume take it too."
+          },
           "setupScript": {
             "type": "string",
             "maxLength": 65536,
@@ -1626,6 +1694,11 @@
         "type": "object",
         "description": "Options for resuming a stopped sandbox.",
         "properties": {
+          "failFast": {
+            "type": "boolean",
+            "default": false,
+            "description": "Pass `true` to resume only if a machine is ready right now. Within about 1.5 s you get the usual `202`, or `503` `no_ready_machine` with the sandbox left stopped and nothing counted against your start limits."
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -3467,6 +3540,10 @@
           },
           "message": {
             "type": "string"
+          },
+          "retryable": {
+            "type": "boolean",
+            "description": "error: true when the command provably never ran (the sandbox is still restoring its disk), so sending it again is safe."
           }
         }
       },
@@ -5236,6 +5313,16 @@
       },
       "RateLimited": {
         "description": "Machine start or concurrent-sandbox limit reached. Create, fork and resume each count as one machine start against your plan's start limits (see the Billing guide; `rate_limited`, naming the window you hit). A sandbox that would exceed your plan's concurrent-sandbox cap is refused with `limit_reached`, or `member_limit_reached` when an organization owner has capped you below the plan.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "NoReadyMachine": {
+        "description": "No capacity. `no_ready_machine`: a `failFast` create, fork or resume found no ready machine of that type; nothing was started, billed, or counted, and a resumed sandbox stays stopped. `out_of_capacity`: creates and forks are paused until the provisioning queue drains.",
         "content": {
           "application/json": {
             "schema": {
@@ -7050,8 +7137,15 @@
           "Boat"
         ],
         "summary": "List sandboxes",
+        "description": "Your sandboxes. In an organization's scope (the active wallet, `org`, or `X-Boat-Org`) the list also holds every sandbox that organization pays for, whoever created it; `createdBy` and `access` say whose it is and what you may do with it.",
         "operationId": "sandboxes",
         "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          },
+          {
+            "$ref": "#/components/parameters/OrgHeader"
+          },
           {
             "$ref": "#/components/parameters/Limit"
           },
@@ -7184,6 +7278,9 @@
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoReadyMachine"
           }
         }
       }
@@ -7381,6 +7478,57 @@
         }
       }
     },
+    "/sandboxes/{sandboxId}/share": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Share sandbox with the organization",
+        "description": "Let every member of the organization that pays for this sandbox use it.\n\nYour personal logins (GitHub token, Claude and Codex logins, environment secrets,\nthe sandbox's own CLI key) are never pushed to it again and are wiped off its disk\nat its next start, so a teammate never acts as you. Files you wrote stay. One-way:\nthe sandbox stays like a `noEnv` sandbox from then on. A running sandbox stays\n`view` for the organization until you stop and resume it (`restartRequired`).\n\nOnly the person who created the sandbox can share it, and only a sandbox billed to\nan organization. Sharing an already shared sandbox is a no-op.\n",
+        "operationId": "share",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sandbox is shared.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sandbox": {
+                      "$ref": "#/components/schemas/Sandbox"
+                    },
+                    "restartRequired": {
+                      "type": "boolean",
+                      "description": "True when the sandbox was running: what runs on it still holds your logins in memory, so it stays `view` for the organization until you stop and resume it."
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/sandboxes/{sandboxId}/resume": {
       "post": {
         "tags": [
@@ -7445,6 +7593,9 @@
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoReadyMachine"
           }
         }
       }
@@ -7472,6 +7623,11 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "failFast": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Pass `true` to fork only if a machine is ready right now. Within about 1.5 s you get the usual `202`, or `503` `no_ready_machine` with no fork created and nothing counted against your start limits."
+                  },
                   "env": {
                     "type": "object",
                     "additionalProperties": {
@@ -7561,6 +7717,9 @@
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/NoReadyMachine"
           }
         }
       }
@@ -7989,7 +8148,7 @@
           "Boat"
         ],
         "summary": "Execute a command in a sandbox",
-        "description": "Runs the command synchronously by default (timeout configurable via `timeoutSeconds`, 600s cap). With `detached: true` the command starts in the background and a process id is returned immediately; poll `/sandboxes/{sandboxId}/commands/{processId}` for status and logs. With `stream: true` the output arrives as the command writes it, as newline-delimited JSON (`application/x-ndjson`): `{\"type\":\"started\"}`, then `{\"type\":\"stdout\"|\"stderr\",\"data\":\"...\"}` per chunk, and last `{\"type\":\"exit\",...}` (the synchronous result without stdout/stderr) or `{\"type\":\"error\",\"error\":\"...\",\"message\":\"...\"}`. Returns 400 invalid_timeout when `timeoutSeconds` is not an integer in 1-600. A command sent while the sandbox is still starting (right after a resume) waits up to 60s for it to be ready instead of failing; 409 boat_starting (retryable) is returned only if it is still not ready by then. Command execution is never retried automatically: a 502 boat_direct_failed means the command may already be running on the sandbox.",
+        "description": "Runs the command synchronously by default (timeout configurable via `timeoutSeconds`, 600s cap). With `detached: true` the command starts in the background and a process id is returned immediately; poll `/sandboxes/{sandboxId}/commands/{processId}` for status and logs. With `stream: true` the output arrives as the command writes it, as newline-delimited JSON (`application/x-ndjson`): `{\"type\":\"started\"}`, then `{\"type\":\"stdout\"|\"stderr\",\"data\":\"...\"}` per chunk, and last `{\"type\":\"exit\",...}` (the synchronous result without stdout/stderr) or `{\"type\":\"error\",\"error\":\"...\",\"message\":\"...\"}`. Returns 400 invalid_timeout when `timeoutSeconds` is not an integer in 1-600. A command sent while the sandbox is still starting (right after a resume) waits up to 60s for it to be ready instead of failing; 409 boat_starting (retryable) is returned only if it is still not ready by then. A sandbox that is not starting (`error`, `stopped`) returns 409 sandbox_not_ready with `retryable: false` and its `state` at once: resume or recover it first. Command execution is never retried automatically: a 502 boat_direct_failed means the command may already be running on the sandbox.",
         "operationId": "command",
         "parameters": [
           {
