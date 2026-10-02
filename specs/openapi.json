@@ -1835,6 +1835,16 @@
               "high"
             ]
           },
+          "fast": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Optional. `true` runs this prompt in fast mode. The model stays the same and gives output faster. The provider bills fast mode at its higher fast rate. Omit to use the choice saved on the Agents dashboard for that model. `false` forces standard speed. Only models with `fastMode` set to `true` in `GET /provider-models` accept `true`. Other models return 400 `fast_mode_not_supported`.",
+            "examples": [
+              true
+            ]
+          },
           "new": {
             "type": "boolean",
             "description": "Start a NEW conversation on the sandbox (runs in parallel with any existing ones) instead of continuing the most-recently-active one. Mutually exclusive with `conversationId`.",
@@ -2990,6 +3000,13 @@
               "null"
             ]
           },
+          "fast": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "The prompt runs in fast mode. `null` means no speed is set yet. The prompt waits without a speed choice, or it ended without running (`done` is true). The speed is set when the prompt starts, for the model that runs."
+          },
           "conversationId": {
             "type": [
               "string",
@@ -3834,6 +3851,10 @@
                   "string",
                   "null"
                 ]
+              },
+              "fast": {
+                "type": "boolean",
+                "description": "The prompt runs in fast mode."
               }
             }
           }
@@ -7792,7 +7813,8 @@
                       "status": "queued",
                       "provider": "codex",
                       "model": "gpt-5.4",
-                      "reasoningEffort": "medium"
+                      "reasoningEffort": "medium",
+                      "fast": false
                     }
                   }
                 }
