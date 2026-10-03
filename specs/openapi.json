@@ -4697,10 +4697,57 @@
                 "items": {
                   "$ref": "#/components/schemas/NamedSnapshot"
                 }
+              },
+              "allowance": {
+                "$ref": "#/components/schemas/NamedSnapshotAllowance"
               }
             }
           }
         ]
+      },
+      "NamedSnapshotAllowance": {
+        "type": "object",
+        "description": "What the request's wallet (your active organization, `?org=`, or personal) pays for named snapshots. 10 are free per wallet; each one above costs $1.70 a month, charged daily from usage. An organization's count includes every member's names billed to it.",
+        "properties": {
+          "org": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Organization the numbers are for. null = personal."
+          },
+          "orgName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "That organization's name."
+          },
+          "free": {
+            "type": "integer",
+            "description": "Named snapshots kept for free."
+          },
+          "used": {
+            "type": "integer",
+            "description": "Named snapshots this wallet keeps."
+          },
+          "extra": {
+            "type": "integer",
+            "description": "Named snapshots above the free ones."
+          },
+          "extraMonthlyDollars": {
+            "type": "number",
+            "description": "What the extra ones cost per month."
+          },
+          "extraDailyDollars": {
+            "type": "number",
+            "description": "Boat time the extra ones take per day, in dollars (the daily charge)."
+          },
+          "pricePerExtraMonthlyDollars": {
+            "type": "number",
+            "description": "Monthly price of one extra named snapshot."
+          }
+        }
       },
       "NamedSnapshotInfoResponse": {
         "allOf": [
@@ -8724,11 +8771,21 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "402": {
+            "description": "`credit_required`: the wallet already keeps 10 or more named snapshots and has no credit left. Each named snapshot above the free 10 costs $1.70 a month, charged daily. Add credit or remove one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "description": "`named_snapshot_limit` when you already keep the maximum of 10 named snapshots; remove one first. `save_in_progress` when a save under this name is already running; wait for it to settle rather than retrying immediately.",
+            "description": "`save_in_progress` when a save under this name is already running; wait for it to settle rather than retrying immediately.",
             "content": {
               "application/json": {
                 "schema": {
