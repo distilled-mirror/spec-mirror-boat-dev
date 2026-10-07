@@ -383,6 +383,18 @@
             "format": "date-time",
             "description": "When the sandbox became degraded, or null."
           },
+          "hydrated": {
+            "type": "boolean",
+            "description": "True once every file of the sandbox's snapshot is on its disk. A resumed or forked sandbox is usable before that: its files keep copying in the background, and its docker volumes move onto the real disk near the end. Its docker containers start earlier; at that point their volume mounts move onto the real disk in place, without a restart. The `sandbox.hydrated` webhook fires at the same moment this turns true. A sandbox that restored nothing is hydrated from the start."
+          },
+          "hydratedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the last resume or fork finished copying files in, or null."
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -626,6 +638,78 @@
             "examples": [
               3
             ]
+          },
+          "stop": {
+            "description": "The last stop you requested (`POST /sandboxes/{sandboxId}/stop`), or null if you never stopped this sandbox.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopOperation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "StopOperation": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "requestedAt",
+          "lastAttemptAt",
+          "error",
+          "endedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable id of this stop. Calling stop again while it is pending returns the same id.",
+            "examples": [
+              "stop_3f9a1c2e7b4d5a60"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "failing",
+              "completed",
+              "superseded"
+            ],
+            "description": "`pending`: accepted, the sandbox is archiving. `failing`: the last attempt failed (see `error`); it is retried automatically until the sandbox archives. Running commands or prompts does not cancel it. `completed`: the sandbox is archived. `superseded`: a resume ended it before it completed."
+          },
+          "requestedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the stop was accepted. Null once it has ended."
+          },
+          "lastAttemptAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the last archival attempt ended."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last attempt failed, while `status` is `failing`. Otherwise null."
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the stop completed or was superseded."
           }
         }
       },
@@ -7489,7 +7573,7 @@
           "Boat"
         ],
         "summary": "Stop and archive sandbox",
-        "description": "Stop active work and archive/snapshot the sandbox for later resume or fork.\n\nA stop always saves the sandbox's disk first. If that save is failing, the stop is\nrefused and the sandbox keeps running so your work is not discarded, we retry\nautomatically and email you. You are not billed for time spent in that state.\n\nSet `force: true` to stop anyway, accepting the loss of everything written since\nthe last successful snapshot. This is irreversible; only reach for it after a\nstop has already failed.\n",
+        "description": "Stop active work and archive/snapshot the sandbox for later resume or fork.\n\nA stop always saves the sandbox's disk first. If that save is failing, the stop is\nrefused and the sandbox keeps running so your work is not discarded, we retry\nautomatically and email you. You are not billed for time spent in that state.\n\nThe stop is an operation: the response and the sandbox carry it as `stop`, with an\n`id` and a `status`. Poll `GET /sandboxes/{sandboxId}` until `stop.status` is\n`completed`. A failed attempt shows `failing` with its `error` and is retried\nuntil the sandbox archives; commands and prompts you send meanwhile do not cancel\nit. Only a resume ends it early (`superseded`). Calling stop again while one is\npending returns the same `id`.\n\nSet `force: true` to stop anyway, accepting the loss of everything written since\nthe last successful snapshot. This is irreversible; only reach for it after a\nstop has already failed.\n",
         "operationId": "stop",
         "parameters": [
           {
