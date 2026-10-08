@@ -686,7 +686,7 @@
               "null"
             ],
             "format": "date-time",
-            "description": "When the stop was accepted. Null once it has ended."
+            "description": "When the stop was accepted. On the sandbox, null once it has ended. Read by id (`GET /sandboxes/{sandboxId}/stops/{stopId}`), it is kept."
           },
           "lastAttemptAt": {
             "type": [
@@ -1770,7 +1770,8 @@
           "force": {
             "type": "boolean",
             "default": false,
-            "description": "Stop the sandbox even if its disk cannot be snapshotted. Everything written since the last successful snapshot is permanently LOST. Without this, a sandbox whose snapshot pipeline is failing is left running rather than discarding your work, and you are not billed for that time. Only use this after a stop has already been refused."
+            "deprecated": true,
+            "description": "Accepted for old clients and behaves as a plain stop. A stop never discards unsaved work: while the save fails, the stop stays pending, the sandbox keeps running and you are not billed for that time."
           }
         }
       },
@@ -1877,7 +1878,7 @@
       },
       "PromptRequest": {
         "type": "object",
-        "description": "Work item to queue inside an existing sandbox. Provider credentials must already be configured in the Boat dashboard.\n\n**Providers (harnesses):** `codex`, `claude-code` (alias `claude`), `pi`, `opencode`, `prime-agent` (alias `prime`), `kimi` (Kimi Code CLI, alias `kimi-code`). Omit `provider` to use the harness the user selected on the Agents dashboard.\n\n**Models & reasoning effort** are harness- and model-specific and change over time. Fetch the live catalog (every provider's models and which reasoning-effort levels each accepts) from `GET /provider-models`. Some models accept no reasoning control. `pi`, `opencode` and `prime-agent` also expose models routed through OpenRouter and llmgateway (ids like `openrouter:anthropic/claude-sonnet-4.5`).\n\n**Conversations:** a sandbox runs many conversations in parallel, each with its own history. Set `new: true` to start a fresh conversation, or `conversationId` to continue a specific one; omit both to continue the sandbox's most-recently-active conversation. The response returns the `conversationId` this prompt ran in. Conversations run concurrently up to a per-sandbox limit that scales with the sandbox's memory; beyond it, prompts queue.\n",
+        "description": "Work item to queue inside an existing sandbox. Provider credentials must already be configured in the Boat dashboard.\n\n**Providers (harnesses):** `codex`, `claude-code` (alias `claude`), `pi`, `opencode`, `prime-agent` (alias `prime`), `kimi` (Kimi Code CLI, alias `kimi-code`), `mistral` (Mistral Vibe). Omit `provider` to use the harness the user selected on the Agents dashboard.\n\n**Models & reasoning effort** are harness- and model-specific and change over time. Fetch the live catalog (every provider's models and which reasoning-effort levels each accepts) from `GET /provider-models`. Some models accept no reasoning control. `pi`, `opencode` and `prime-agent` also expose models routed through OpenRouter and llmgateway (ids like `openrouter:anthropic/claude-sonnet-4.5`).\n\n**Conversations:** a sandbox runs many conversations in parallel, each with its own history. Set `new: true` to start a fresh conversation, or `conversationId` to continue a specific one; omit both to continue the sandbox's most-recently-active conversation. The response returns the `conversationId` this prompt ran in. Conversations run concurrently up to a per-sandbox limit that scales with the sandbox's memory; beyond it, prompts queue.\n",
         "required": [
           "provider",
           "prompt"
@@ -1894,7 +1895,8 @@
               "prime-agent",
               "prime",
               "kimi",
-              "kimi-code"
+              "kimi-code",
+              "mistral"
             ]
           },
           "model": {
@@ -3100,6 +3102,32 @@
           }
         }
       },
+      "StopOperationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "stop"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "stop.status"
+              },
+              "id": {
+                "type": "string"
+              },
+              "stop": {
+                "$ref": "#/components/schemas/StopOperation"
+              }
+            }
+          }
+        ]
+      },
       "PromptRunResponse": {
         "allOf": [
           {
@@ -4024,7 +4052,7 @@
               "string",
               "null"
             ],
-            "description": "Harness the most recent prompt ran on (`claude`, `codex`, `pi`, `opencode`, `prime-agent`, `kimi`)."
+            "description": "Harness the most recent prompt ran on (`claude`, `codex`, `pi`, `opencode`, `prime-agent`, `kimi`, `mistral`)."
           },
           "lastModel": {
             "type": [
@@ -7573,7 +7601,7 @@
           "Boat"
         ],
         "summary": "Stop and archive sandbox",
-        "description": "Stop active work and archive/snapshot the sandbox for later resume or fork.\n\nA stop always saves the sandbox's disk first. If that save is failing, the stop is\nrefused and the sandbox keeps running so your work is not discarded, we retry\nautomatically and email you. You are not billed for time spent in that state.\n\nThe stop is an operation: the response and the sandbox carry it as `stop`, with an\n`id` and a `status`. Poll `GET /sandboxes/{sandboxId}` until `stop.status` is\n`completed`. A failed attempt shows `failing` with its `error` and is retried\nuntil the sandbox archives; commands and prompts you send meanwhile do not cancel\nit. Only a resume ends it early (`superseded`). Calling stop again while one is\npending returns the same `id`.\n\nSet `force: true` to stop anyway, accepting the loss of everything written since\nthe last successful snapshot. This is irreversible; only reach for it after a\nstop has already failed.\n",
+        "description": "Stop active work and archive/snapshot the sandbox for later resume or fork.\n\nA stop always saves the sandbox's disk first. If that save is failing, the stop is\nrefused and the sandbox keeps running so your work is not discarded, we retry\nautomatically and email you. You are not billed for time spent in that state.\n\nThe stop is an operation: the response and the sandbox carry it as `stop`, with an\n`id` and a `status`. Poll `GET /sandboxes/{sandboxId}` until `stop.status` is\n`completed`. A failed attempt shows `failing` with its `error` and is retried\nuntil the sandbox archives; commands and prompts you send meanwhile do not cancel\nit. Only a resume ends it early (`superseded`). Calling stop again while one is\npending returns the same `id`.\n\nA stop never discards unsaved work. `force: true` is accepted and behaves as a\nplain stop.\n",
         "operationId": "stop",
         "parameters": [
           {
@@ -7677,6 +7705,82 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/recover": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Recover a sandbox that stopped responding",
+        "description": "Power-cycle the machine of a sandbox that stopped answering. The disk is not\ntouched. The sandbox usually answers again within 1-2 minutes and then saves\nyour work by itself; `sandbox.recovered` fires when it does.\n\nRefused with `409`:\n- `sandbox_is_reachable`: the sandbox answers normally.\n- `too_soon`: a recover started less than 10 minutes ago.\n- `no_machine`: the sandbox has no machine. Resume it instead.\n- `recover_unsupported`: its machine cannot be power-cycled. Wait for it to\n  answer, or resume it from its last snapshot.\n- `reset_failed`: the power-cycle failed. Reply to the incident email.\n",
+        "operationId": "recover",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The power-cycle started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "type": "string",
+                      "examples": [
+                        "sandbox.recovering"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "recovering"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "The sandbox cannot be recovered now. `code` says why (see above).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                },
+                "example": {
+                  "ok": false,
+                  "type": "sandbox.error",
+                  "status": 409,
+                  "code": "recover_unsupported",
+                  "message": "This sandbox runs on a machine that cannot be power-cycled. Wait for it to answer again, or resume it from its last snapshot.",
+                  "requestId": "req_01HX...",
+                  "error": {
+                    "code": "recover_unsupported",
+                    "message": "This sandbox runs on a machine that cannot be power-cycled. Wait for it to answer again, or resume it from its last snapshot.",
+                    "status": 409
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -8208,6 +8312,47 @@
         }
       }
     },
+    "/sandboxes/{sandboxId}/stops/{stopId}": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get a stop by id",
+        "description": "Returns one stop of this sandbox by the id that `POST /sandboxes/{sandboxId}/stop` returned. Old stops stay readable after a resume or a later stop. Returns 404 when the id is unknown or belongs to another sandbox.",
+        "operationId": "getStop",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "stopId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stop.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopOperationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/sandboxes/{sandboxId}/files": {
       "get": {
         "tags": [
@@ -8445,7 +8590,7 @@
           "Boat"
         ],
         "summary": "Steer a running turn",
-        "description": "Send a new message to a turn that is already running, without losing what the agent is doing. This is what typing into a coding agent while it works does: the instruction is taken into account and the work continues.\n\nWhere the harness has a native mid-turn primitive (Claude Code, Codex, pi, Prime Agent) nothing is interrupted and the response has `native: true`. Where it does not (OpenCode), Boat interrupts that turn and immediately continues the SAME conversation with the instruction, keeping the session and its memory, and the response has `native: false`.\n\nRefused with **409 `no_running_turn`** when the conversation has nothing in flight; queue work with `POST /prompt` instead. The steer shows up in `GET /events` as a `steer` event. See [Integrated agents](/integrated-agents).",
+        "description": "Send a new message to a turn that is already running, without losing what the agent is doing. This is what typing into a coding agent while it works does: the instruction is taken into account and the work continues.\n\nWhere the harness has a native mid-turn primitive (Claude Code, Codex, pi, Prime Agent) nothing is interrupted and the response has `native: true`. Where it does not (OpenCode), Boat interrupts that turn and immediately continues the SAME conversation with the instruction, keeping the session and its memory, and the response has `native: false`.\n\nRefused with **409 `no_running_turn`** when the conversation has nothing in flight; queue work with `POST /prompt` instead. `error.details.reason` says why: `turn_ended` (with `error.details.lastTurn.status` and `.error` of the newest turn), `turn_not_started` (the turn is starting; retry in a moment), `no_turn`, `not_running` (the sandbox is not running) or `delivery_failed` (the sandbox did not accept the steer; check the turn before sending more work). The steer shows up in `GET /events` as a `steer` event. See [Integrated agents](/integrated-agents).",
         "operationId": "steer",
         "parameters": [
           {
