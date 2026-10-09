@@ -400,7 +400,8 @@
             "enum": [
               "small",
               "default",
-              "large"
+              "large",
+              "xlarge"
             ],
             "description": "Current machine size: what the sandbox was created with, or the size it was last resumed or forked onto."
           },
@@ -420,7 +421,7 @@
           },
           "billingMultiplier": {
             "type": "number",
-            "description": "Rate at which this sandbox consumes machine time. 0.5 for `small`, 1 for `default`, and 2 for `large`.",
+            "description": "Rate at which this sandbox consumes machine time. 0.5 for `small`, 1 for `default`, 2 for `large`, and 50/9 (about 5.56) for `xlarge`.",
             "examples": [
               1
             ]
@@ -1671,10 +1672,11 @@
             "enum": [
               "small",
               "default",
-              "large"
+              "large",
+              "xlarge"
             ],
             "default": "default",
-            "description": "Machine size. `small` consumes machine time at half rate and `large` at twice the default rate (see the Billing guide). A fork inherits the source sandbox's type unless the fork request passes its own, and resume and fork can move a sandbox between sizes."
+            "description": "Machine size. `small` consumes machine time at half rate and `large` at twice the default rate (see the Billing guide). `xlarge` needs the $100/month plan or higher; lower plans get a 403 `machine_class_plan_required` on create, resume and fork. A fork inherits the source sandbox's type unless the fork request passes its own, and resume and fork can move a sandbox between sizes."
           },
           "ttlSeconds": {
             "oneOf": [
@@ -1724,7 +1726,7 @@
           "setupScript": {
             "type": "string",
             "maxLength": 65536,
-            "description": "Shell script that runs on the sandbox after it is ready. Ready means \"ready to accept the user\", not \"setup done\": the script starts in the background once provisioning completes and never blocks the sandbox becoming usable. It runs as the sandbox user via `bash`, with the sandbox's environment applied, and its output goes to a log file on the sandbox. Observe the outcome as `setupStatus` (pending/running/done/failed) and `setupError` on the sandbox. Rejected with a 400 `invalid_setup_script` error when it is not a string or exceeds 64KB."
+            "description": "Shell script that runs on the sandbox after it is ready. Ready means \"ready to accept the user\", not \"setup done\": the script starts in the background once provisioning completes and never blocks the sandbox becoming usable. It runs as the sandbox user (`user`, not root; `sudo` needs no password) via `bash`, with the sandbox's environment applied, and its output goes to a log file on the sandbox. Observe the outcome as `setupStatus` (pending/running/done/failed) and `setupError` on the sandbox. Rejected with a 400 `invalid_setup_script` error when it is not a string or exceeds 64KB."
           },
           "org": {
             "type": "string",
@@ -1736,7 +1738,7 @@
           },
           "from": {
             "type": "string",
-            "description": "Create the sandbox from a named snapshot (saved with `POST /named-snapshots`, or `boat snapshot <id> <name>` in the CLI). The sandbox starts from that exact frozen state. Omitting `type` inherits the type the snapshot was saved from; env and no-env inherit from the snapshot's source sandbox unless the request passes its own, with the same rules as forking."
+            "description": "Create the sandbox from a named snapshot (saved with `POST /named-snapshots`, or `boat snapshot <id> <name>` in the CLI). The sandbox starts from that exact frozen state. Omitting `type` inherits the type the snapshot was saved from; env and no-env inherit from the snapshot's source sandbox unless the request passes its own, with the same rules as forking. Also accepts a share code (`bsh_...`) that another account made with `POST /named-snapshots/{name}/shares`. The new sandbox lives in and is billed to your account. It does not get the owner's per-sandbox env; your own environment applies normally. A wrong or revoked code returns `404 snapshot_not_found`."
           }
         },
         "examples": [
@@ -1770,8 +1772,7 @@
           "force": {
             "type": "boolean",
             "default": false,
-            "deprecated": true,
-            "description": "Accepted for old clients and behaves as a plain stop. A stop never discards unsaved work: while the save fails, the stop stays pending, the sandbox keeps running and you are not billed for that time."
+            "description": "Stop the sandbox even if its disk cannot be snapshotted. It keeps its last successful snapshot and everything written since then is permanently LOST. Without this, a sandbox whose snapshot pipeline is failing is left running rather than discarding your work, and you are not billed for that time. Only use this after a stop has already been refused."
           }
         }
       },
@@ -1789,9 +1790,10 @@
             "enum": [
               "small",
               "default",
-              "large"
+              "large",
+              "xlarge"
             ],
-            "description": "Resume onto a different machine size. Omit to keep the sandbox's current type. A resume already restores onto a fresh machine, so changing size costs nothing extra. Shrinking is rejected with `type_too_small` when the sandbox's data would not fit the smaller disk."
+            "description": "Resume onto a different machine size. Omit to keep the sandbox's current type. `xlarge` needs the $100/month plan or higher (403 `machine_class_plan_required`). A resume already restores onto a fresh machine, so changing size costs nothing extra. Shrinking is rejected with `type_too_small` when the sandbox's data would not fit the smaller disk."
           },
           "env": {
             "type": "object",
@@ -1856,7 +1858,7 @@
                 "type": "null"
               }
             ],
-            "description": "New archival TTL. `null` disables auto-stop."
+            "description": "New auto-stop TTL. The deadline becomes now + `ttlSeconds`, so calling this again extends a running sandbox's life. `null` disables auto-stop."
           },
           "subdomain": {
             "type": "string",
@@ -4438,13 +4440,14 @@
                 "enum": [
                   "small",
                   "default",
-                  "large"
+                  "large",
+                  "xlarge"
                 ],
                 "description": "The sandbox's current machine size, which sets `billingMultiplier`."
               },
               "billingMultiplier": {
                 "type": "number",
-                "description": "Rate at which this sandbox consumes machine time. 0.5 for `small`, 1 for `default`, and 2 for `large`.",
+                "description": "Rate at which this sandbox consumes machine time. 0.5 for `small`, 1 for `default`, 2 for `large`, and 50/9 (about 5.56) for `xlarge`.",
                 "examples": [
                   1
                 ]
@@ -4950,6 +4953,147 @@
               "status": {
                 "type": "string",
                 "const": "deleted"
+              }
+            }
+          }
+        ]
+      },
+      "NamedSnapshotShare": {
+        "type": "object",
+        "description": "A share code for a named snapshot. Any Boat account that holds the code can create a sandbox from the snapshot. Boat stores only a hash of the code. The full code is in the create response only.",
+        "required": [
+          "id",
+          "codePrefix",
+          "status",
+          "useCount",
+          "lastUsedAt",
+          "revokedAt",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Share id, for example `shr_...`. Pass it to revoke the code."
+          },
+          "codePrefix": {
+            "type": "string",
+            "description": "The first characters of the code, for example `bsh_xxxxxxxx`. Use it to tell codes apart."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked"
+            ]
+          },
+          "useCount": {
+            "type": "integer",
+            "description": "Number of sandboxes created with this code."
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When a sandbox was last created with this code. null if never."
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the code was revoked. null while active."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NamedSnapshotShareCreatedResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "shareCode",
+              "share"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "snapshot.share.created"
+              },
+              "name": {
+                "type": "string",
+                "description": "The named snapshot the code deploys."
+              },
+              "shareCode": {
+                "type": "string",
+                "description": "The share code, for example `bsh_...`. Boat shows it only in this response. Store it now; you cannot get it again."
+              },
+              "share": {
+                "$ref": "#/components/schemas/NamedSnapshotShare"
+              }
+            }
+          }
+        ]
+      },
+      "NamedSnapshotShareListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "shares"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "snapshot.share.list"
+              },
+              "name": {
+                "type": "string"
+              },
+              "shares": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/NamedSnapshotShare"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "NamedSnapshotShareRevokedResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "share"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "snapshot.share.revoked"
+              },
+              "name": {
+                "type": "string"
+              },
+              "share": {
+                "$ref": "#/components/schemas/NamedSnapshotShare"
               }
             }
           }
@@ -7601,7 +7745,7 @@
           "Boat"
         ],
         "summary": "Stop and archive sandbox",
-        "description": "Stop active work and archive/snapshot the sandbox for later resume or fork.\n\nA stop always saves the sandbox's disk first. If that save is failing, the stop is\nrefused and the sandbox keeps running so your work is not discarded, we retry\nautomatically and email you. You are not billed for time spent in that state.\n\nThe stop is an operation: the response and the sandbox carry it as `stop`, with an\n`id` and a `status`. Poll `GET /sandboxes/{sandboxId}` until `stop.status` is\n`completed`. A failed attempt shows `failing` with its `error` and is retried\nuntil the sandbox archives; commands and prompts you send meanwhile do not cancel\nit. Only a resume ends it early (`superseded`). Calling stop again while one is\npending returns the same `id`.\n\nA stop never discards unsaved work. `force: true` is accepted and behaves as a\nplain stop.\n",
+        "description": "Stop active work and archive/snapshot the sandbox for later resume or fork.\n\nA stop always saves the sandbox's disk first. If that save is failing, the stop is\nrefused and the sandbox keeps running so your work is not discarded, we retry\nautomatically and email you. You are not billed for time spent in that state.\n\nThe stop is an operation: the response and the sandbox carry it as `stop`, with an\n`id` and a `status`. Poll `GET /sandboxes/{sandboxId}` until `stop.status` is\n`completed`. A failed attempt shows `failing` with its `error` and is retried\nuntil the sandbox archives; commands and prompts you send meanwhile do not cancel\nit. Only a resume ends it early (`superseded`). Calling stop again while one is\npending returns the same `id`.\n\nSet `force: true` to stop anyway, keeping the last successful snapshot and\nlosing everything written since then. This is irreversible; only reach for it\nafter a stop has already failed. A force on a stop that is already pending\nescalates that stop.\n",
         "operationId": "stop",
         "parameters": [
           {
@@ -7908,9 +8052,10 @@
                     "enum": [
                       "small",
                       "default",
-                      "large"
+                      "large",
+                      "xlarge"
                     ],
-                    "description": "Machine size for the fork. Omit to inherit the source sandbox's type. The source sandbox is never modified. Shrinking is rejected with `type_too_small` when the source's data would not fit the smaller disk."
+                    "description": "Machine size for the fork. Omit to inherit the source sandbox's type. `xlarge` needs the $100/month plan or higher (403 `machine_class_plan_required`). The source sandbox is never modified. Shrinking is rejected with `type_too_small` when the source's data would not fit the smaller disk."
                   },
                   "ttlSeconds": {
                     "oneOf": [
@@ -8359,6 +8504,7 @@
           "Boat"
         ],
         "summary": "Read a file from a sandbox",
+        "description": "Files up to 5 MiB. Use `GET /sandboxes/{sandboxId}/artifacts` for files up to 50 MiB, and SCP over SSH for larger ones.",
         "operationId": "readFile",
         "parameters": [
           {
@@ -8407,6 +8553,7 @@
           "Boat"
         ],
         "summary": "Write a file in a sandbox",
+        "description": "Files up to 5 MiB after decoding. Use SCP over SSH for larger files.",
         "operationId": "writeFile",
         "parameters": [
           {
@@ -8555,6 +8702,7 @@
           "Boat"
         ],
         "summary": "Download a sandbox artifact",
+        "description": "Downloads one file of up to 50 MiB, under /home/user or /tmp, as raw bytes.",
         "operationId": "artifact",
         "parameters": [
           {
@@ -9105,6 +9253,117 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/named-snapshots/{name}/shares": {
+      "parameters": [
+        {
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "List share codes of a named snapshot",
+        "description": "List the share codes of a named snapshot, active and revoked (`boat snapshot shares <name>` in the CLI). The full codes are not returned. Needs `snapshot.read`.",
+        "operationId": "listSnapshotShares",
+        "responses": {
+          "200": {
+            "description": "The snapshot's share codes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamedSnapshotShareListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Share a named snapshot",
+        "description": "Make a secret code that lets any Boat account create a sandbox from this named snapshot (`boat snapshot share <name>` in the CLI). The response shows the code once; Boat stores only a hash. Re-saving the name changes what the code deploys. Removing the name removes its codes. Everything on the disk is shared, so do not keep secrets in files on it. Needs `snapshot.write`.",
+        "operationId": "createSnapshotShare",
+        "responses": {
+          "201": {
+            "description": "Code created. Store `shareCode` now; Boat does not show it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamedSnapshotShareCreatedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/named-snapshots/{name}/shares/{shareId}": {
+      "parameters": [
+        {
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "shareId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Share id, for example `shr_...`."
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Revoke a share code",
+        "description": "Revoke a share code (`boat snapshot unshare <name> <share-id>` in the CLI). The code stops creating new sandboxes. Sandboxes already created from it keep their own copy. Needs `snapshot.write`.",
+        "operationId": "revokeSnapshotShare",
+        "responses": {
+          "200": {
+            "description": "Revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamedSnapshotShareRevokedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
