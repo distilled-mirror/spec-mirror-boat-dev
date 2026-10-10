@@ -2240,7 +2240,9 @@
         "properties": {
           "ok": {
             "type": "boolean",
-            "const": true
+            "examples": [
+              true
+            ]
           },
           "type": {
             "type": "string",
@@ -6383,7 +6385,7 @@
                     },
                     "scopedCreationEnabled": {
                       "type": "boolean",
-                      "enum": [
+                      "examples": [
                         false
                       ]
                     }
