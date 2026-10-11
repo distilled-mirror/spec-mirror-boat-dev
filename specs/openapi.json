@@ -500,6 +500,10 @@
             "type": "boolean",
             "description": "False when the sandbox was created with snapshots off."
           },
+          "monitoring": {
+            "type": "boolean",
+            "description": "False when the sandbox was created with monitoring off."
+          },
           "snapshotAvailable": {
             "type": "boolean"
           },
@@ -1718,6 +1722,11 @@
             "default": true,
             "description": "Pass `false` to never snapshot this sandbox. Nothing is captured in the background, so it pays no CPU or memory for it, and stopping it erases its disk the way zero data retention does. It cannot be resumed, forked, or saved as a named snapshot, and if its machine fails there is no backup to rebuild it from."
           },
+          "monitoring": {
+            "type": "boolean",
+            "default": true,
+            "description": "Pass `false` for monitoring off. Boat keeps no command or process output, process list or CPU/RAM samples for this sandbox, and its history, processes and metrics calls answer 409 `monitoring_off`. Live output of a running command still works. While the account default is on, `true` is refused with 409 `monitoring_off_for_account`."
+          },
           "failFast": {
             "type": "boolean",
             "default": false,
@@ -2465,6 +2474,11 @@
             "type": "boolean",
             "default": false,
             "description": "Return an ungated URL instead of one that requires the `_token` query parameter."
+          },
+          "localhost": {
+            "type": "boolean",
+            "default": false,
+            "description": "Set when the service listens on localhost (`127.0.0.1` or `::1`) only. The sandbox relays the URL to it. Leave unset for a service bound to `0.0.0.0`. Each call sets the value again."
           },
           "title": {
             "type": "string",
@@ -3652,6 +3666,10 @@
               "error"
             ]
           },
+          "commandId": {
+            "type": "string",
+            "description": "started: the command's record in the command history."
+          },
           "data": {
             "type": "string",
             "description": "stdout/stderr: the chunk of output, UTF-8."
@@ -3701,6 +3719,10 @@
               },
               "success": {
                 "type": "boolean"
+              },
+              "commandId": {
+                "type": "string",
+                "description": "The command's record in the command history."
               },
               "exitCode": {
                 "type": [
@@ -3769,6 +3791,10 @@
               },
               "success": {
                 "type": "boolean"
+              },
+              "commandId": {
+                "type": "string",
+                "description": "The command's record in the command history. Its output is copied there every 30 s."
               },
               "processId": {
                 "type": "integer",
@@ -3889,11 +3915,11 @@
               },
               "stdout": {
                 "type": "string",
-                "description": "Tail of the stdout log file."
+                "description": "Tail of the stdout log file. With `stdoutOffset`: the stdout written since that offset."
               },
               "stderr": {
                 "type": "string",
-                "description": "Tail of the stderr log file."
+                "description": "Tail of the stderr log file. With `stderrOffset`: the stderr written since that offset."
               },
               "stdoutTruncated": {
                 "type": "boolean"
@@ -3906,6 +3932,438 @@
               },
               "errLogPath": {
                 "type": "string"
+              },
+              "stdoutOffset": {
+                "type": "integer",
+                "description": "Byte offset where `stdout` starts: the offset you asked for, or 0 when the log was replaced."
+              },
+              "stderrOffset": {
+                "type": "integer",
+                "description": "Byte offset where `stderr` starts: the offset you asked for, or 0 when the log was replaced."
+              },
+              "stdoutNextOffset": {
+                "type": "integer",
+                "description": "The `stdoutOffset` for the next read."
+              },
+              "stderrNextOffset": {
+                "type": "integer",
+                "description": "The `stderrOffset` for the next read."
+              },
+              "more": {
+                "type": "boolean",
+                "description": "True when more output is already written. Read again at once."
+              }
+            }
+          }
+        ]
+      },
+      "CommandAttachFrame": {
+        "type": "object",
+        "description": "One line of `GET /sandboxes/{sandboxId}/commands/{processId}/stream` (application/x-ndjson).\n- `attached`: first line. `processId`, `stdoutOffset`, `stderrOffset` (where the output starts).\n- `stdout` / `stderr`: a chunk. `data`, and `nextOffset` for that stream.\n- `heartbeat`: sent after 15 s with no other line.\n- `exit`: last line when the command ended and all its output was sent. `status`, `exitCode`, `signal`, `stdoutOffset`, `stderrOffset`.\n- `reconnect`: last line after 10 minutes. Open the stream again with its `stdoutOffset` and `stderrOffset`. Nothing is lost or repeated.\n- `error`: last line on a failure. `error`, `message`, `stdoutOffset`, `stderrOffset`.\n",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "attached",
+              "stdout",
+              "stderr",
+              "heartbeat",
+              "exit",
+              "reconnect",
+              "error"
+            ]
+          },
+          "processId": {
+            "type": "integer"
+          },
+          "data": {
+            "type": "string"
+          },
+          "nextOffset": {
+            "type": "integer"
+          },
+          "stdoutOffset": {
+            "type": "integer"
+          },
+          "stderrOffset": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "exited",
+              "lost"
+            ]
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "signal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CommandRecord": {
+        "type": "object",
+        "description": "One command run through the commands endpoint (kept 90 days), or one process of the sandbox with mode `process` (kept 72 hours). Readable while the sandbox is stopped.",
+        "required": [
+          "commandId",
+          "sandboxId",
+          "command",
+          "mode",
+          "status",
+          "stdoutBytes",
+          "stderrBytes",
+          "outputTruncated",
+          "startedAt"
+        ],
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "examples": [
+              "cmd_k3v9x2mq7tbw"
+            ],
+            "description": "Id of the record in the command history."
+          },
+          "sandboxId": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string",
+            "description": "The command text as sent (first 64 KiB)."
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "sync",
+              "stream",
+              "detached",
+              "process"
+            ],
+            "description": "sync: the request waited for the result. stream: the output was streamed. detached: started in the background. process: any other process of the sandbox, recorded from what it wrote to its stdout/stderr."
+          },
+          "processId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "detached: the process id on the sandbox."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "exited",
+              "timed_out",
+              "failed",
+              "killed",
+              "lost"
+            ],
+            "description": "failed: the command could not start or its result never arrived. killed: ended by a signal or by DELETE /commands/{processId}. lost: the sandbox stopped or its agent restarted while the command ran."
+          },
+          "exitCode": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "signal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stdoutBytes": {
+            "type": "integer",
+            "description": "Bytes of stdout written so far."
+          },
+          "stderrBytes": {
+            "type": "integer",
+            "description": "Bytes of stderr written so far."
+          },
+          "outputTruncated": {
+            "type": "boolean",
+            "description": "True when part of the output is not kept: the sandbox cut the output of a waiting command at 8 MiB, or the account wrote more than 10 MiB (compressed) of command output, or of process output, in one hour."
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "CommandListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "commands",
+              "nextCursor"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "command.list"
+              },
+              "commands": {
+                "type": "array",
+                "description": "Newest first.",
+                "items": {
+                  "$ref": "#/components/schemas/CommandRecord"
+                }
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Pass as `cursor` to get the next page. Null on the last page."
+              }
+            }
+          }
+        ]
+      },
+      "CommandInfoResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "command"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "command.info"
+              },
+              "command": {
+                "$ref": "#/components/schemas/CommandRecord"
+              }
+            }
+          }
+        ]
+      },
+      "CommandLogsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "commandId",
+              "stream",
+              "offset",
+              "nextOffset",
+              "size",
+              "encoding",
+              "data",
+              "done"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "command.logs"
+              },
+              "commandId": {
+                "type": "string"
+              },
+              "stream": {
+                "type": "string",
+                "enum": [
+                  "stdout",
+                  "stderr"
+                ]
+              },
+              "offset": {
+                "type": "integer",
+                "description": "Byte position of the first byte in `data`. Greater than the requested offset only when output was not kept (see outputTruncated)."
+              },
+              "nextOffset": {
+                "type": "integer",
+                "description": "Pass as `offset` to read on."
+              },
+              "size": {
+                "type": "integer",
+                "description": "Bytes the stream has so far."
+              },
+              "encoding": {
+                "type": "string",
+                "enum": [
+                  "utf8",
+                  "base64"
+                ]
+              },
+              "data": {
+                "type": "string"
+              },
+              "done": {
+                "type": "boolean",
+                "description": "True when the command ended and this read reached the end of the stream."
+              }
+            }
+          }
+        ]
+      },
+      "CommandStopResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "processId",
+              "running",
+              "signaled",
+              "command"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "command.stopped"
+              },
+              "processId": {
+                "type": "integer"
+              },
+              "running": {
+                "type": "boolean",
+                "description": "Always false after a stop."
+              },
+              "signaled": {
+                "type": "boolean",
+                "description": "False when the process had already ended."
+              },
+              "command": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/CommandRecord"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The history record of the command, with its final state."
+              }
+            }
+          }
+        ]
+      },
+      "SandboxProcess": {
+        "type": "object",
+        "required": [
+          "pid",
+          "command"
+        ],
+        "properties": {
+          "pid": {
+            "type": "integer"
+          },
+          "parentPid": {
+            "type": "integer",
+            "description": "Live list only."
+          },
+          "user": {
+            "type": "string",
+            "description": "Live list only."
+          },
+          "cpuPercent": {
+            "type": "number"
+          },
+          "memoryMB": {
+            "type": "number",
+            "description": "Resident memory."
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Live list only."
+          },
+          "command": {
+            "type": "string",
+            "description": "The full command line (first 1000 characters; 120 in a stored sample)."
+          },
+          "commandId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Live list: the history record holding this process's output, when it has one."
+          }
+        }
+      },
+      "ProcessListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "live",
+              "sampledAt",
+              "processes",
+              "total"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "process.list"
+              },
+              "live": {
+                "type": "boolean",
+                "description": "True: read from the running sandbox now. False: the sandbox is stopped (or its agent is not upgraded yet), and this is the last sample kept (top 12 processes, every 30 s, 7 days)."
+              },
+              "sampledAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "total": {
+                "type": "integer",
+                "description": "Processes on the sandbox. The list holds at most 500",
+                "busiest first.": null
+              },
+              "processes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SandboxProcess"
+                }
               }
             }
           }
@@ -4192,6 +4650,10 @@
                   "private",
                   "public"
                 ]
+              },
+              "localhost": {
+                "type": "boolean",
+                "description": "The sandbox relays the URL to a service that listens on localhost only."
               }
             }
           }
@@ -4589,6 +5051,169 @@
             "properties": {
               "id": {
                 "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "TelemetryConfig": {
+        "type": "object",
+        "required": [
+          "endpoint",
+          "headers",
+          "lastExportAt",
+          "lastError",
+          "createdAt"
+        ],
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "format": "uri",
+            "description": "The OTLP/HTTP base URL. Boat posts to `<endpoint>/v1/metrics` and `<endpoint>/v1/logs`."
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The names of the saved headers. The values are never returned."
+          },
+          "lastExportAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The time of the last metrics export that the collector accepted."
+          },
+          "lastError": {
+            "description": "The most recent error from the collector, for metrics or events.",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "message",
+                  "status",
+                  "at"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "HTTP status, or null for a network error."
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TelemetrySetRequest": {
+        "type": "object",
+        "required": [
+          "endpoint"
+        ],
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "description": "HTTPS URL on port 443 or 4318. Boat removes a trailing `/v1/metrics` or `/v1/logs`.",
+            "example": "https://otlp.example.com"
+          },
+          "headers": {
+            "type": "object",
+            "maxProperties": 20,
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 8192
+            },
+            "description": "Headers sent with every export, for example the vendor API key. Boat encrypts them at rest.",
+            "example": {
+              "dd-api-key": "<DATADOG_API_KEY>"
+            }
+          }
+        }
+      },
+      "TelemetryTestResult": {
+        "type": "object",
+        "required": [
+          "ok",
+          "status",
+          "message"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "True when the collector accepted the test export."
+          },
+          "status": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The collector error or partial-success message."
+          }
+        }
+      },
+      "TelemetryResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "telemetry"
+            ],
+            "properties": {
+              "telemetry": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TelemetryConfig"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "TelemetrySetResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TelemetryResponse"
+          },
+          {
+            "type": "object",
+            "required": [
+              "test"
+            ],
+            "properties": {
+              "test": {
+                "$ref": "#/components/schemas/TelemetryTestResult"
               }
             }
           }
@@ -5500,6 +6125,17 @@
                   "null"
                 ],
                 "format": "date-time"
+              },
+              "monitoringOff": {
+                "type": "boolean",
+                "description": "When true, every new sandbox of this account is created with monitoring off."
+              },
+              "monitoringOffAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
               }
             }
           }
@@ -5507,7 +6143,7 @@
       },
       "DataRetentionUpdateRequest": {
         "type": "object",
-        "description": "Pass `enabled` to change zero data retention, or `snapshotsOff` alone to change the account's snapshots-off setting.",
+        "description": "Pass `enabled` to change zero data retention, or `snapshotsOff` or `monitoringOff` alone to change that account setting.",
         "additionalProperties": false,
         "properties": {
           "enabled": {
@@ -5516,6 +6152,10 @@
           "snapshotsOff": {
             "type": "boolean",
             "description": "Turn snapshots off for every sandbox created from now on. Existing sandboxes keep their setting. While on, a create or fork that passes `snapshots: true` is refused with 409 `snapshots_off_for_account`."
+          },
+          "monitoringOff": {
+            "type": "boolean",
+            "description": "Turn monitoring off for every sandbox created from now on. Existing sandboxes keep their setting. While on, a create or fork that passes `monitoring: true` is refused with 409 `monitoring_off_for_account`."
           },
           "confirmation": {
             "type": "string",
@@ -6825,6 +7465,142 @@
         }
       }
     },
+    "/telemetry": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get OpenTelemetry export",
+        "description": "Returns the account's OpenTelemetry export, or `telemetry` null when none is set. Header values are never included. Needs an API key with `account.admin`.",
+        "operationId": "getTelemetry",
+        "responses": {
+          "200": {
+            "description": "The export and its last result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryResponse"
+                },
+                "examples": {
+                  "set": {
+                    "value": {
+                      "ok": true,
+                      "type": "telemetry.info",
+                      "telemetry": {
+                        "endpoint": "https://otlp.example.com",
+                        "headers": [
+                          "dd-api-key"
+                        ],
+                        "lastExportAt": "2026-10-09T12:00:00Z",
+                        "lastError": null,
+                        "createdAt": "2026-10-09T11:00:00Z"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Set OpenTelemetry export",
+        "description": "Sets the account's one OTLP/HTTP destination, or replaces it. Boat then sends one metrics export at once and returns the collector's answer in `test`.\n\nEvery 60 seconds Boat sends the sandbox and account gauges to `<endpoint>/v1/metrics`. Each sandbox lifecycle event goes to `<endpoint>/v1/logs`. The endpoint must use HTTPS on port 443 or 4318 and resolve only to public addresses. Needs an API key with `account.admin`.\n",
+        "operationId": "setTelemetry",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelemetrySetRequest"
+              },
+              "examples": {
+                "datadog": {
+                  "value": {
+                    "endpoint": "https://otlp.datadoghq.com",
+                    "headers": {
+                      "dd-api-key": "<DATADOG_API_KEY>"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Export saved. `test` holds the result of the first export.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetrySetResponse"
+                },
+                "examples": {
+                  "saved": {
+                    "value": {
+                      "ok": true,
+                      "type": "telemetry.updated",
+                      "telemetry": {
+                        "endpoint": "https://otlp.datadoghq.com",
+                        "headers": [
+                          "dd-api-key"
+                        ],
+                        "lastExportAt": null,
+                        "lastError": null,
+                        "createdAt": "2026-10-09T11:00:00Z"
+                      },
+                      "test": {
+                        "ok": true,
+                        "status": 202,
+                        "message": null
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Remove OpenTelemetry export",
+        "description": "Removes the export and its queued deliveries. Needs an API key with `account.admin`.",
+        "operationId": "deleteTelemetry",
+        "responses": {
+          "200": {
+            "description": "Export removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelemetryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/secrets": {
       "get": {
         "tags": [
@@ -8030,6 +8806,10 @@
                     "default": false,
                     "description": "Pass `true` to fork only if a machine is ready right now. Within about 1.5 s you get the usual `202`, or `503` `no_ready_machine` with no fork created and nothing counted against your start limits."
                   },
+                  "monitoring": {
+                    "type": "boolean",
+                    "description": "`false` creates the fork with monitoring off: Boat keeps no command or process output, process list or CPU/RAM samples for it. Omitted, the fork keeps the source sandbox's setting. `true` turns it on for the fork, unless the account has monitoring off by default (`409` `monitoring_off_for_account`)."
+                  },
                   "env": {
                     "type": "object",
                     "additionalProperties": {
@@ -8595,7 +9375,7 @@
           "Boat"
         ],
         "summary": "Execute a command in a sandbox",
-        "description": "Runs the command synchronously by default (timeout configurable via `timeoutSeconds`, 600s cap). With `detached: true` the command starts in the background and a process id is returned immediately; poll `/sandboxes/{sandboxId}/commands/{processId}` for status and logs. With `stream: true` the output arrives as the command writes it, as newline-delimited JSON (`application/x-ndjson`): `{\"type\":\"started\"}`, then `{\"type\":\"stdout\"|\"stderr\",\"data\":\"...\"}` per chunk, and last `{\"type\":\"exit\",...}` (the synchronous result without stdout/stderr) or `{\"type\":\"error\",\"error\":\"...\",\"message\":\"...\"}`. Returns 400 invalid_timeout when `timeoutSeconds` is not an integer in 1-600. A command sent while the sandbox is still starting (right after a resume) waits up to 60s for it to be ready instead of failing; 409 boat_starting (retryable) is returned only if it is still not ready by then. A sandbox that is not starting (`error`, `stopped`) returns 409 sandbox_not_ready with `retryable: false` and its `state` at once: resume or recover it first. Command execution is never retried automatically: a 502 boat_direct_failed means the command may already be running on the sandbox.",
+        "description": "Runs the command synchronously by default (timeout configurable via `timeoutSeconds`, 600s cap). With `detached: true` the command starts in the background and a process id is returned immediately; poll `/sandboxes/{sandboxId}/commands/{processId}` for status and logs. With `stream: true` the output arrives as the command writes it, as newline-delimited JSON (`application/x-ndjson`): `{\"type\":\"started\"}`, then `{\"type\":\"stdout\"|\"stderr\",\"data\":\"...\"}` per chunk, and last `{\"type\":\"exit\",...}` (the synchronous result without stdout/stderr) or `{\"type\":\"error\",\"error\":\"...\",\"message\":\"...\"}`. Returns 400 invalid_timeout when `timeoutSeconds` is not an integer in 1-600. A command sent while the sandbox is still starting (right after a resume) waits up to 60s for it to be ready instead of failing; 409 boat_starting (retryable) is returned only if it is still not ready by then. A sandbox that is not starting (`error`, `stopped`) returns 409 sandbox_not_ready with `retryable: false` and its `state` at once: resume or recover it first. Command execution is never retried automatically: a 502 boat_direct_failed means the command may already be running on the sandbox. Every command and its output are kept 90 days in the command history (`/sandboxes/{sandboxId}/command-history`), readable while the sandbox is stopped.",
         "operationId": "command",
         "parameters": [
           {
@@ -8657,6 +9437,7 @@
         ],
         "summary": "Get detached command status and logs",
         "operationId": "commandStatus",
+        "description": "Without offsets, the answer holds the end of each log. With `stdoutOffset` or `stderrOffset`, it holds only the output written since those byte offsets, so each poll returns only new output. A sandbox agent too old for offsets answers 409 `agent_outdated`.",
         "parameters": [
           {
             "$ref": "#/components/parameters/SandboxId"
@@ -8672,12 +9453,30 @@
               "minimum": 1,
               "maximum": 8388608
             },
-            "description": "Cap each returned log to its last N bytes. Defaults to 8388608 (8 MiB)."
+            "description": "Cap each returned log to its last N bytes. Defaults to 8388608 (8 MiB). Ignored with offsets."
+          },
+          {
+            "name": "stdoutOffset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Return only stdout written from this byte offset. Use `stdoutNextOffset` of the previous answer."
+          },
+          {
+            "name": "stderrOffset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Return only stderr written from this byte offset. Use `stderrNextOffset` of the previous answer."
           }
         ],
         "responses": {
           "200": {
-            "description": "Process status and log tails.",
+            "description": "Process status and log tails, or the output since the offsets.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8688,6 +9487,351 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Stop a detached command",
+        "description": "Sends SIGTERM to the command and every process it started, then SIGKILL to what is left after 5 s. Only a process started with `detached` can be stopped. The response carries the command's history record with its final state and output.",
+        "operationId": "stopCommand",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "$ref": "#/components/parameters/ProcessId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The command is stopped.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandStopResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/commands/{processId}/stream": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Attach to a detached command",
+        "description": "The output of a detached command as it is written, one JSON object per line, until the command ends. After 10 minutes the stream ends with a `reconnect` line: open it again with its offsets to continue with no gap. One open stream replaces polling. Needs the `exec` key scope.",
+        "operationId": "attachCommand",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "$ref": "#/components/parameters/ProcessId"
+          },
+          {
+            "name": "stdoutOffset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Start stdout at this byte offset. 0 sends the whole log."
+          },
+          {
+            "name": "stderrOffset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Start stderr at this byte offset. 0 sends the whole log."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The output stream.",
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandAttachFrame"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/command-history": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "List the command and process history",
+        "description": "Every command run through `POST /sandboxes/{sandboxId}/commands` in the last 90 days, and every other process that wrote to its stdout/stderr in the last 72 hours (mode `process`), newest first. Works while the sandbox is stopped.",
+        "operationId": "commandHistory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "examples": [
+                "process",
+                "commands",
+                "sync,detached"
+              ]
+            },
+            "description": "Only these modes, comma-separated: sync, stream, detached, process, or `commands` for the first three. Default: all."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "examples": [
+                "npm run"
+              ]
+            },
+            "description": "Only commands whose command line contains this text, in any case."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "The `nextCursor` of the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of commands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/command-history/{commandId}": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get one command from the history",
+        "operationId": "getCommand",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "commandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The command.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandInfoResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/command-history/{commandId}/logs": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Read a command's stored output",
+        "description": "Reads stdout or stderr from a byte offset, at most 1 MiB per call. Read on with `nextOffset` until `done`. A running detached command gains output every 30 s; a streamed one every 2 s. Works while the sandbox is stopped.",
+        "operationId": "commandLogs",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "commandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "stream",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "stdout",
+                "stderr"
+              ],
+              "default": "stdout"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1048576,
+              "default": 1048576
+            }
+          },
+          {
+            "name": "encoding",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "utf8",
+                "base64"
+              ],
+              "default": "utf8"
+            },
+            "description": "base64 returns the exact bytes. utf8 can split a character at the edge of a read."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bytes from `offset`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandLogsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/processes": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "List the processes in a sandbox",
+        "description": "A running sandbox: every user-space process, read now, busiest first. A stopped sandbox: the last sample kept (`live: false`).",
+        "operationId": "processes",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The processes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessListResponse"
+                }
+              }
+            }
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -9787,7 +10931,7 @@
           "Boat"
         ],
         "summary": "Download a file or folder from a snapshot",
-        "description": "Stream a single file's bytes, or a folder subtree as a tar archive, directly out of a snapshot, the sandbox can be stopped or archived; the machine is never contacted. Use `GET /snapshots/{snapshotId}/tree` to list paths, then pass one here. Paths are relative to the snapshot root (same space as `tree` entries; docker volumes under `__dockervol__/`). An empty or `/` path downloads the whole snapshot as a tar. Folder responses set `X-Snapshot-File-Count`, `X-Snapshot-Total-Size-Bytes` and `X-Snapshot-Skipped-Base-Image-Files` headers; both response shapes set `X-Snapshot-Entry-Kind` (`file` or `dir`).",
+        "description": "Stream a single file's bytes, or a folder subtree as a tar archive, directly out of a snapshot, the sandbox can be stopped or archived; the machine is never contacted. Use `GET /snapshots/{snapshotId}/tree` to list paths, then pass one here. Paths are relative to the snapshot root (same space as `tree` entries; docker volumes under `__dockervol__/`). An empty or `/` path downloads the whole snapshot as a tar. Folder responses set `X-Snapshot-File-Count`, `X-Snapshot-Total-Size-Bytes` and `X-Snapshot-Skipped-Base-Image-Files` headers; both response shapes set `X-Snapshot-Entry-Kind` (`file` or `dir`). File responses accept a single `Range: bytes=` header and answer 206 with `Content-Range`, so large files can be downloaded in parts and resumed.",
         "operationId": "getSnapshotFile",
         "parameters": [
           {
