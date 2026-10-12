@@ -5309,6 +5309,14 @@
               "null"
             ],
             "description": "Number of your files restored by this snapshot (base image excluded). `null` on legacy snapshots."
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "captured",
+              "template"
+            ],
+            "description": "`template` = this Sandbox has snapshots off, so Boat never captures it: the row is a copy of the template, named snapshot or Sandbox it was created from. `captured` = this Sandbox has snapshots on: its own captures, plus the copies Boat makes when the Sandbox is created from a source, forked or resumed."
           }
         }
       },
@@ -5997,7 +6005,7 @@
               "retrying",
               "completed"
             ],
-            "description": "What the background purge is doing. The target is already gone from every list, restore and fork once the operation exists. `waiting_for_uploads`: stored data is erased once the last upload URL issued for it expires (`expectedBy`). `kept_for_newer_snapshots`: a newer snapshot you kept is built on this one; its data goes when they go. `waiting_for_restore`: a sandbox is still restoring from it. `retrying`: a transient fault, retried automatically."
+            "description": "What the background purge is doing. The target is already gone from every list, restore and fork once the operation exists. `waiting_for_uploads`: stored data is erased once the last upload URL issued for it expires (`expectedBy`). `kept_for_newer_snapshots`: a newer snapshot, or a sandbox forked or deployed from it, still builds on this data; it goes when they go. `waiting_for_restore`: a sandbox is still restoring from it. `retrying`: a transient fault, retried automatically."
           },
           "expectedBy": {
             "type": [
