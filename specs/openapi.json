@@ -208,7 +208,7 @@
         "schema": {
           "type": "string"
         },
-        "description": "Billing wallet for this request: an organization you belong to, by id (`team_…`) or by name as `GET /orgs` lists it (case-insensitive), or `personal`. Omitted, the account's active wallet applies (`PATCH /orgs/active`; personal until set). Two organizations sharing the name answer `409 ambiguous_org` and need the id. Sandboxes, snapshots, and environments stay creator-private."
+        "description": "Billing wallet for this request: an organization you belong to, by id (`team_…`) or by name as `GET /orgs` lists it (case-insensitive), or `personal`. Omitted, the account's active wallet applies (`PATCH /orgs/active`; personal until set). Two organizations sharing the name answer `409 ambiguous_org` and need the id. Sandboxes and snapshots stay creator-private. On `/environments` routes, only this query parameter selects the organization's shared environments; the `X-Boat-Org` header and the active wallet do not apply there. Members read them, owners and admins change them."
       },
       "OrgHeader": {
         "name": "X-Boat-Org",
@@ -2198,7 +2198,7 @@
           },
           "safeForThirdParties": {
             "type": "boolean",
-            "description": "When true the environment passes nothing to a sandbox (repos, secrets, and all credentials withheld), overriding the fine-grained flags below. Use for sandboxes handed to third parties."
+            "description": "When true the environment passes nothing to a sandbox (repos, secrets, and all credentials withheld), overriding the fine-grained flags below. Use for sandboxes handed to third parties. The one exception is `proxyAiCredentials`."
           },
           "passGithub": {
             "type": "boolean",
@@ -2215,6 +2215,17 @@
           "passAgentsCredentials": {
             "type": "boolean",
             "description": "Attach agent-provider credentials configured on the Agents page. Ignored when `safeForThirdParties` is true."
+          },
+          "credentialProfileId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The AI credential profile the environment's sandboxes get. Null means the sandbox owner's default profile."
+          },
+          "proxyAiCredentials": {
+            "type": "boolean",
+            "description": "Only with `safeForThirdParties` true. The sandboxes still get AI credentials, as AI credentials proxy placeholders. Real keys never enter them."
           },
           "envContents": {
             "type": "string",
@@ -2329,6 +2340,17 @@
           },
           "passAgentsCredentials": {
             "type": "boolean"
+          },
+          "credentialProfileId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Id or name of a credential profile you can use, or null for the sandbox owner's default profile. Unknown profiles return `404 credential_profile_not_found`."
+          },
+          "proxyAiCredentials": {
+            "type": "boolean",
+            "description": "With `safeForThirdParties` true, pass AI credentials as proxy placeholders. Setting true needs the AI credentials proxy on for the profile owner, else `400 ai_proxy_off`."
           },
           "envContents": {
             "type": "string",
@@ -3617,6 +3639,71 @@
           }
         ]
       },
+      "FileUrlRequest": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute path, or path relative to the sandbox work directory (/home/user). It must resolve under /home/user or /tmp."
+          },
+          "ttlSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600,
+            "default": 900,
+            "description": "How long the URL stays valid."
+          }
+        }
+      },
+      "FileUrlResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "url",
+              "method",
+              "path",
+              "expiresAt"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "file.download_url",
+                  "file.upload_url"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "description": "The signed URL. Send the request straight to it; it needs no Authorization header."
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "GET",
+                  "PUT"
+                ],
+                "description": "GET downloads the file. PUT uploads the request body as the file."
+              },
+              "path": {
+                "type": "string",
+                "description": "The canonical path the URL is bound to."
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ]
+      },
       "CommandRequest": {
         "type": "object",
         "required": [
@@ -4356,8 +4443,7 @@
               },
               "total": {
                 "type": "integer",
-                "description": "Processes on the sandbox. The list holds at most 500",
-                "busiest first.": null
+                "description": "Processes on the sandbox. The list holds at most 500, busiest first."
               },
               "processes": {
                 "type": "array",
@@ -5214,6 +5300,658 @@
             "properties": {
               "test": {
                 "$ref": "#/components/schemas/TelemetryTestResult"
+              }
+            }
+          }
+        ]
+      },
+      "CredentialId": {
+        "type": "string",
+        "description": "One AI credential in a credential profile. The `*-api-key` ids are API keys you can set with `PUT /credential-profiles/{profile}/keys/{credential}`. The sign-ins (`*-subscription`) and Bedrock (`*-bedrock`) are connected on the dashboard Agents & Proxying page, with the profile picked at the top; you can remove them here.",
+        "enum": [
+          "anthropic-api-key",
+          "openai-api-key",
+          "openrouter-api-key",
+          "llmgateway-api-key",
+          "deepseek-api-key",
+          "moonshot-api-key",
+          "mistral-api-key",
+          "claude-subscription",
+          "chatgpt-subscription",
+          "kimi-subscription",
+          "mistral-vibe-subscription",
+          "claude-bedrock",
+          "codex-bedrock"
+        ]
+      },
+      "CredentialProfile": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "isDefault",
+          "owner",
+          "canManage",
+          "connected",
+          "customApis",
+          "createdAt",
+          "updatedAt"
+        ],
+        "description": "A named set of AI credentials. Secret values are never returned.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "examples": [
+              "default",
+              "work"
+            ]
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "True for the one profile of its owner that sandboxes get when nothing names a profile. The dashboard Agents page edits this profile."
+          },
+          "owner": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "name",
+              "aiProxyEnabled"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The account that owns the profile, a person or an organization."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "personal",
+                  "org"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "aiProxyEnabled": {
+                "type": "boolean",
+                "description": "True when the owner has the AI credentials proxy on."
+              }
+            }
+          },
+          "canManage": {
+            "type": "boolean",
+            "description": "True when you can change the profile. Org members use an org profile; org owners manage it."
+          },
+          "connected": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CredentialId"
+            },
+            "description": "The credentials the profile holds."
+          },
+          "accounts": {
+            "type": "object",
+            "description": "Credentials with several accounts, keyed by credential id. Each lists every account (labels only), the one in use marked `active`.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/CredentialAccount"
+              }
+            }
+          },
+          "customApis": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The names of the profile's custom APIs. Values are never returned."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CredentialProfileListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "profiles"
+            ],
+            "properties": {
+              "profiles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CredentialProfile"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CredentialProfileResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "success",
+              "profile"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "profile": {
+                "$ref": "#/components/schemas/CredentialProfile"
+              }
+            }
+          }
+        ]
+      },
+      "CredentialProfileDeletedResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "success"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "CreateCredentialProfileRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique among the owner's profiles.",
+            "examples": [
+              "work"
+            ]
+          },
+          "org": {
+            "type": "string",
+            "description": "Organization id or name. The profile then belongs to that organization. Omit for a personal profile."
+          },
+          "copyFrom": {
+            "type": "string",
+            "description": "Id or name of a profile you manage. The new profile starts with a copy of its credentials."
+          }
+        }
+      },
+      "UpdateCredentialProfileRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "New profile name."
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "Send true to make this profile its owner's default. The previous default loses the flag. False is ignored; make another profile the default instead."
+          }
+        }
+      },
+      "SetCredentialKeyRequest": {
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "value": {
+            "type": "string",
+            "description": "The API key. Boat encrypts it at rest."
+          },
+          "keepCurrent": {
+            "type": "boolean",
+            "description": "Keep the key this one replaces as another account of the credential, ready to switch back to."
+          }
+        }
+      },
+      "CredentialAccount": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "active"
+        ],
+        "description": "One account of a credential. Never a secret.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The account's id. It stays the same across switches."
+          },
+          "label": {
+            "type": "string",
+            "description": "The account's email for a sign-in, or the key's last characters (…1234).",
+            "examples": [
+              "you@example.com",
+              "…1234"
+            ]
+          },
+          "active": {
+            "type": "boolean",
+            "description": "True for the account every sandbox on the profile uses."
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the account was set aside (accounts not in use)."
+          }
+        }
+      },
+      "CredentialAccountsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "success",
+              "profileId",
+              "credential",
+              "accounts"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "profileId": {
+                "type": "string"
+              },
+              "credential": {
+                "$ref": "#/components/schemas/CredentialId"
+              },
+              "accounts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CredentialAccount"
+                },
+                "description": "In the order the accounts were added, so their numbers stay the same across switches. The one in use is marked `active`."
+              }
+            }
+          }
+        ]
+      },
+      "SetCustomApiRequest": {
+        "type": "object",
+        "required": [
+          "value",
+          "baseUrl"
+        ],
+        "properties": {
+          "value": {
+            "type": "string",
+            "maxLength": 8192,
+            "description": "The secret. The sandbox gets it as the variable named in the path."
+          },
+          "baseUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Public HTTPS base URL of the API, on the default port, with a DNS name. The sandbox gets it as `<NAME>_BASE_URL`.",
+            "examples": [
+              "https://api.stripe.com/v1"
+            ]
+          }
+        }
+      },
+      "AiProxySettings": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "success",
+              "accountId",
+              "org",
+              "enabled",
+              "enabledAt",
+              "pricing",
+              "proxyUrl"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "accountId": {
+                "type": "string",
+                "description": "The account the switch belongs to, a person or an organization."
+              },
+              "org": {
+                "type": "boolean",
+                "description": "True when `accountId` is an organization."
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "enabledAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "pricing": {
+                "type": "object",
+                "required": [
+                  "dailyDollars",
+                  "dollarsPer1000Requests"
+                ],
+                "properties": {
+                  "dailyDollars": {
+                    "type": "number",
+                    "examples": [
+                      1
+                    ],
+                    "description": "Charged to the account for each UTC day the proxy is on."
+                  },
+                  "dollarsPer1000Requests": {
+                    "type": "number",
+                    "examples": [
+                      1
+                    ],
+                    "description": "Charged per 1,000 proxied requests."
+                  }
+                }
+              },
+              "proxyUrl": {
+                "type": "string",
+                "format": "uri",
+                "description": "The base URL sandboxes call instead of the providers."
+              }
+            }
+          }
+        ]
+      },
+      "UpdateAiProxyRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AiUsageTotals": {
+        "type": "object",
+        "required": [
+          "requests",
+          "errors",
+          "inputTokens",
+          "outputTokens",
+          "cacheReadTokens",
+          "cacheWriteTokens"
+        ],
+        "description": "Token counts are the numbers the provider reports in its replies.",
+        "properties": {
+          "requests": {
+            "type": "integer"
+          },
+          "errors": {
+            "type": "integer",
+            "description": "Requests the provider answered with an HTTP error, or did not answer."
+          },
+          "inputTokens": {
+            "type": "integer"
+          },
+          "outputTokens": {
+            "type": "integer"
+          },
+          "cacheReadTokens": {
+            "type": "integer"
+          },
+          "cacheWriteTokens": {
+            "type": "integer"
+          }
+        }
+      },
+      "AiUsageRow": {
+        "allOf": [
+          {
+            "type": "object",
+            "required": [
+              "day",
+              "credential",
+              "model"
+            ],
+            "properties": {
+              "day": {
+                "type": "string",
+                "format": "date",
+                "description": "UTC day."
+              },
+              "credential": {
+                "type": "string",
+                "description": "The credential used: a `CredentialId`, or `custom:<NAME>` for a custom API."
+              },
+              "model": {
+                "type": "string",
+                "description": "The model the provider reported, or empty."
+              }
+            }
+          },
+          {
+            "$ref": "#/components/schemas/AiUsageTotals"
+          }
+        ]
+      },
+      "SandboxAiUsage": {
+        "type": "object",
+        "required": [
+          "sandboxId",
+          "name",
+          "blocked",
+          "usage",
+          "totals",
+          "dollars"
+        ],
+        "properties": {
+          "sandboxId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "blocked": {
+            "type": "boolean"
+          },
+          "usage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiUsageRow"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/AiUsageTotals"
+          },
+          "dollars": {
+            "type": "number",
+            "description": "Request charge for the period, at the price per 1,000 requests."
+          }
+        }
+      },
+      "AccountAiUsageResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "accountId",
+              "profileId",
+              "since",
+              "sandboxes",
+              "usage",
+              "totals",
+              "dollars"
+            ],
+            "properties": {
+              "accountId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The wallet the usage is charged to. Null with `profile`."
+              },
+              "profileId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The credential profile whose requests are counted. Null without `profile`."
+              },
+              "since": {
+                "type": "string",
+                "format": "date",
+                "description": "First UTC day included."
+              },
+              "sandboxes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SandboxAiUsage"
+                }
+              },
+              "usage": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AiUsageRow"
+                }
+              },
+              "totals": {
+                "$ref": "#/components/schemas/AiUsageTotals"
+              },
+              "dollars": {
+                "type": "number"
+              }
+            }
+          }
+        ]
+      },
+      "SandboxAiUsageResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "sandboxId",
+              "blocked",
+              "proxied",
+              "credentialProfileId",
+              "since",
+              "usage",
+              "totals",
+              "dollars"
+            ],
+            "properties": {
+              "sandboxId": {
+                "type": "string"
+              },
+              "blocked": {
+                "type": "boolean",
+                "description": "True when the proxy refuses this sandbox's placeholders."
+              },
+              "proxied": {
+                "type": "boolean",
+                "description": "True when the sandbox holds placeholders, not real keys."
+              },
+              "credentialProfileId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The profile the sandbox uses. Null means its owner's default."
+              },
+              "since": {
+                "type": "string",
+                "format": "date"
+              },
+              "usage": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AiUsageRow"
+                }
+              },
+              "totals": {
+                "$ref": "#/components/schemas/AiUsageTotals"
+              },
+              "dollars": {
+                "type": "number"
+              }
+            }
+          }
+        ]
+      },
+      "SetSandboxAiAccessRequest": {
+        "type": "object",
+        "required": [
+          "blocked"
+        ],
+        "properties": {
+          "blocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SandboxAiAccessResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "success",
+              "sandboxId",
+              "blocked"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "sandboxId": {
+                "type": "string"
+              },
+              "blocked": {
+                "type": "boolean"
               }
             }
           }
@@ -7609,6 +8347,914 @@
         }
       }
     },
+    "/credential-profiles": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "List credential profiles",
+        "description": "Returns every AI credential profile you can use, yours and your organizations'. Secret values are never returned. Needs an API key with `account.admin`.",
+        "operationId": "listCredentialProfiles",
+        "responses": {
+          "200": {
+            "description": "The profiles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialProfileListResponse"
+                },
+                "examples": {
+                  "profiles": {
+                    "value": {
+                      "ok": true,
+                      "type": "credential_profile.list",
+                      "profiles": [
+                        {
+                          "id": "5b0f3c1e-8d2a-4c47-9a5e-2f1d7c3b9a10",
+                          "name": "default",
+                          "isDefault": true,
+                          "owner": {
+                            "id": "usr_123",
+                            "kind": "personal",
+                            "name": "alex",
+                            "aiProxyEnabled": true
+                          },
+                          "canManage": true,
+                          "connected": [
+                            "claude-subscription",
+                            "openai-api-key"
+                          ],
+                          "customApis": [
+                            "STRIPE_KEY"
+                          ],
+                          "createdAt": "2026-10-01T12:00:00Z",
+                          "updatedAt": "2026-10-09T08:00:00Z"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Create a credential profile",
+        "description": "Creates an empty profile, or a copy of `copyFrom`. With `org`, the profile belongs to that organization and only its owners can create it. Needs an API key with `account.admin`.",
+        "operationId": "createCredentialProfile",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCredentialProfileRequest"
+              },
+              "examples": {
+                "copy": {
+                  "value": {
+                    "name": "work",
+                    "copyFrom": "default"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Profile created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/credential-profiles/{profile}": {
+      "parameters": [
+        {
+          "name": "profile",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Profile id or name."
+        }
+      ],
+      "put": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Update a credential profile",
+        "description": "Renames the profile, or makes it its owner's default. Sandboxes that use the owner's default switch to the new default at their next start. Needs an API key with `account.admin`.",
+        "operationId": "updateCredentialProfile",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCredentialProfileRequest"
+              },
+              "examples": {
+                "makeDefault": {
+                  "value": {
+                    "isDefault": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Delete a credential profile",
+        "description": "Deletes the profile. A default profile returns `409 is_default`. A profile that an environment names returns `409 in_use`. Needs an API key with `account.admin`.",
+        "operationId": "deleteCredentialProfile",
+        "responses": {
+          "200": {
+            "description": "Profile deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialProfileDeletedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/credential-profiles/{profile}/keys/{credential}": {
+      "parameters": [
+        {
+          "name": "profile",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Profile id or name."
+        },
+        {
+          "name": "credential",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CredentialId"
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Set a credential profile API key",
+        "description": "Sets one API key. A sign-in id returns `400 not_an_api_key`; connect sign-ins on the dashboard Agents page. Running sandboxes that use the profile get the new key. Needs an API key with `account.admin`.",
+        "operationId": "setCredentialProfileKey",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCredentialKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Remove a credential profile credential",
+        "description": "Removes one credential, an API key or a sign-in. Needs an API key with `account.admin`.",
+        "operationId": "deleteCredentialProfileKey",
+        "responses": {
+          "200": {
+            "description": "The updated profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/credential-profiles/{profile}/accounts/{credential}": {
+      "parameters": [
+        {
+          "name": "profile",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Profile id or name."
+        },
+        {
+          "name": "credential",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CredentialId"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "List the accounts of a credential",
+        "description": "Every account of one credential (several ChatGPT sign-ins, several OpenAI keys), in the order they were added, the one in use marked. Labels only, never a secret. Needs an API key with `account.admin`.",
+        "operationId": "listCredentialAccounts",
+        "responses": {
+          "200": {
+            "description": "The accounts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialAccountsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Add another API key to a credential",
+        "description": "Adds an API key as another account of the credential, ready to switch to. The first key of a credential becomes the one in use. A sign-in returns `400 not_an_api_key`; add another sign-in with \"Add another account\" on the dashboard. Needs an API key with `account.admin`.",
+        "operationId": "addCredentialAccount",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCredentialKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The accounts, the new one included.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialAccountsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/credential-profiles/{profile}/accounts/{credential}/{account}/active": {
+      "parameters": [
+        {
+          "name": "profile",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Profile id or name."
+        },
+        {
+          "name": "credential",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CredentialId"
+          }
+        },
+        {
+          "name": "account",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "The account id from the list."
+        }
+      ],
+      "put": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Switch a credential to another account",
+        "description": "Makes this account the one in use; the previous one stays as another account. Switching to the account already in use changes nothing. Every sandbox that uses the profile gets it at once, running ones included, with no restart. Use it when one account runs out of credits. Needs an API key with `account.admin`.",
+        "operationId": "switchCredentialAccount",
+        "responses": {
+          "200": {
+            "description": "The accounts after the switch.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialAccountsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/credential-profiles/{profile}/accounts/{credential}/{account}": {
+      "parameters": [
+        {
+          "name": "profile",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Profile id or name."
+        },
+        {
+          "name": "credential",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/CredentialId"
+          }
+        },
+        {
+          "name": "account",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "The account id from the list."
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Forget an account of a credential",
+        "description": "Deletes an account. For the account in use, the credential switches to another account first, or is removed when it was the last one. Needs an API key with `account.admin`.",
+        "operationId": "deleteCredentialAccount",
+        "responses": {
+          "200": {
+            "description": "The accounts left.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialAccountsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/credential-profiles/{profile}/custom-apis/{name}": {
+      "parameters": [
+        {
+          "name": "profile",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          },
+          "description": "Profile id or name."
+        },
+        {
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]{0,63}$"
+          },
+          "description": "Environment variable name of the custom API, for example `STRIPE_KEY`. Provider names (`ANTHROPIC_*`, `OPENAI_*`, and so on) and names that end in `_BASE_URL` are reserved."
+        }
+      ],
+      "put": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Set a custom API",
+        "description": "Adds or replaces one custom API. The sandbox gets `<NAME>` and `<NAME>_BASE_URL`. Needs an API key with `account.admin`.",
+        "operationId": "setCredentialProfileCustomApi",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCustomApiRequest"
+              },
+              "examples": {
+                "stripe": {
+                  "value": {
+                    "value": "sk_live_123",
+                    "baseUrl": "https://api.stripe.com/v1"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Remove a custom API",
+        "description": "Removes one custom API from the profile. Needs an API key with `account.admin`.",
+        "operationId": "deleteCredentialProfileCustomApi",
+        "responses": {
+          "200": {
+            "description": "The updated profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/ai-proxy": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get AI credentials proxy",
+        "description": "Returns the AI credentials proxy switch of the account in scope, a person or an organization, with its price. Needs an API key with `account.admin`.",
+        "operationId": "getAiProxy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          },
+          {
+            "$ref": "#/components/parameters/OrgHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The switch and its price.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProxySettings"
+                },
+                "examples": {
+                  "on": {
+                    "value": {
+                      "ok": true,
+                      "type": "ai_proxy.info",
+                      "success": true,
+                      "accountId": "usr_123",
+                      "org": false,
+                      "enabled": true,
+                      "enabledAt": "2026-10-09T08:00:00Z",
+                      "pricing": {
+                        "dailyDollars": 1,
+                        "dollarsPer1000Requests": 1
+                      },
+                      "proxyUrl": "https://boat.dev/api/aiproxy"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Turn the AI credentials proxy on or off",
+        "description": "With the proxy on, sandboxes get placeholder keys and base URLs that point at Boat. Boat swaps in the real key on each request. Real keys never enter the sandbox.\n\nRunning sandboxes switch at their next start. While on, the account pays $1 of Boat time for each UTC day, plus $1 per 1,000 proxied requests, charged to the wallet each sandbox bills. For an organization, only its owner can change the switch. Needs an API key with `account.admin`.\n",
+        "operationId": "updateAiProxy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          },
+          {
+            "$ref": "#/components/parameters/OrgHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAiProxyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProxySettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/ai-usage": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get AI usage",
+        "description": "Proxied AI usage, per sandbox and in total, per UTC day, credential and model. Without `profile`, the usage charged to the wallet in scope. With `profile`, the requests made with that profile's credentials, whoever pays; only its managers can read it. Needs an API key with `account.read`.",
+        "operationId": "getAiUsage",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30
+            },
+            "description": "Days of history, today included."
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "A credential profile id. Counts that profile's requests instead of a wallet's."
+          },
+          {
+            "$ref": "#/components/parameters/OrgId"
+          },
+          {
+            "$ref": "#/components/parameters/OrgHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The usage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountAiUsageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/ai-usage": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get sandbox AI usage",
+        "description": "One sandbox's proxied AI usage per UTC day, credential and model, and whether it is blocked. Needs an API key with `box.read` on the sandbox.",
+        "operationId": "getSandboxAiUsage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 30
+            },
+            "description": "Days of history, today included."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The usage.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxAiUsageResponse"
+                },
+                "examples": {
+                  "usage": {
+                    "value": {
+                      "ok": true,
+                      "type": "sandbox.ai_usage",
+                      "sandboxId": "bx_23456789",
+                      "blocked": false,
+                      "proxied": true,
+                      "credentialProfileId": null,
+                      "since": "2026-09-11",
+                      "usage": [
+                        {
+                          "day": "2026-10-10",
+                          "credential": "claude-subscription",
+                          "model": "claude-sonnet-4-5",
+                          "requests": 412,
+                          "errors": 3,
+                          "inputTokens": 51234,
+                          "outputTokens": 80321,
+                          "cacheReadTokens": 1203344,
+                          "cacheWriteTokens": 90233
+                        }
+                      ],
+                      "totals": {
+                        "requests": 412,
+                        "errors": 3,
+                        "inputTokens": 51234,
+                        "outputTokens": 80321,
+                        "cacheReadTokens": 1203344,
+                        "cacheWriteTokens": 90233
+                      },
+                      "dollars": 0.412
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/ai-access": {
+      "put": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Block or unblock sandbox AI access",
+        "description": "Blocks or unblocks the sandbox's AI placeholders, running or stopped. The proxy refuses a blocked sandbox's requests with `403`. It has no effect on a sandbox that holds real keys. The sandbox creator, or a manager of its credential profile, can call it. Needs an API key with `account.admin`.",
+        "operationId": "setSandboxAiAccess",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSandboxAiAccessRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The new state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxAiAccessResponse"
+                },
+                "examples": {
+                  "blocked": {
+                    "value": {
+                      "ok": true,
+                      "type": "sandbox.ai_access_updated",
+                      "success": true,
+                      "sandboxId": "bx_23456789",
+                      "blocked": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/secrets": {
       "get": {
         "tags": [
@@ -7706,6 +9352,11 @@
         "summary": "List Sandbox environments",
         "description": "Returns every non-deleted sandbox environment with its latest-version flags, contents, and per-version sandbox usage. A default environment named `base` is created on first access if none exists.",
         "operationId": "environments",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The account's sandbox environments.",
@@ -7728,6 +9379,8 @@
                           "passSecrets": true,
                           "passSandboxCredentials": true,
                           "passAgentsCredentials": true,
+                          "credentialProfileId": null,
+                          "proxyAiCredentials": false,
                           "envContents": "OPENAI_API_KEY=sk-...\n",
                           "secretFiles": [],
                           "versions": [
@@ -7758,6 +9411,11 @@
         "summary": "Create a sandbox environment",
         "description": "Create a new named environment. It starts on version 1 with all fine-grained flags on and `safeForThirdParties` off.",
         "operationId": "createEnvironment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -7802,6 +9460,9 @@
             "format": "uuid"
           },
           "description": "Environment id returned by `GET /environments`."
+        },
+        {
+          "$ref": "#/components/parameters/OrgId"
         }
       ],
       "put": {
@@ -7890,6 +9551,9 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "$ref": "#/components/parameters/OrgId"
           }
         ],
         "requestBody": {
@@ -7951,6 +9615,9 @@
             "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
           },
           "description": "Environment variable name."
+        },
+        {
+          "$ref": "#/components/parameters/OrgId"
         }
       ],
       "put": {
@@ -8037,6 +9704,9 @@
             "type": "string",
             "format": "uuid"
           }
+        },
+        {
+          "$ref": "#/components/parameters/OrgId"
         }
       ],
       "put": {
@@ -8145,6 +9815,9 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "$ref": "#/components/parameters/OrgId"
           }
         ],
         "requestBody": {
@@ -8219,6 +9892,9 @@
               "type": "string"
             },
             "description": "The repository `databaseId`."
+          },
+          {
+            "$ref": "#/components/parameters/OrgId"
           }
         ],
         "responses": {
@@ -9294,7 +10970,7 @@
           "Boat"
         ],
         "summary": "Read a file from a sandbox",
-        "description": "Files up to 5 MiB. Use `GET /sandboxes/{sandboxId}/artifacts` for files up to 50 MiB, and SCP over SSH for larger ones.",
+        "description": "Files up to 5 MiB. For a larger file, use `POST /sandboxes/{sandboxId}/files/download-url`.",
         "operationId": "readFile",
         "parameters": [
           {
@@ -9343,7 +11019,7 @@
           "Boat"
         ],
         "summary": "Write a file in a sandbox",
-        "description": "Files up to 5 MiB after decoding. Use SCP over SSH for larger files.",
+        "description": "Files up to 5 MiB after decoding. For a larger file, use `POST /sandboxes/{sandboxId}/files/upload-url`.",
         "operationId": "writeFile",
         "parameters": [
           {
@@ -9373,6 +11049,104 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/download-url": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get a download URL for a sandbox file",
+        "description": "Returns a short-lived URL that the sandbox serves itself. GET it to download the file as raw bytes, with no size limit and no Authorization header. The URL is bound to this path and expires after `ttlSeconds` (default 15 minutes, at most 1 hour). Needs `file.read`. Treat the URL as a secret until it expires.",
+        "operationId": "createDownloadUrl",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileUrlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed download URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUrlResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/upload-url": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get an upload URL for a sandbox file",
+        "description": "Returns a short-lived URL that the sandbox serves itself. PUT the file as the raw request body to write it, with no size limit and no Authorization header. Missing directories are created; an existing file is replaced only once the upload completes. The URL is bound to this path and expires after `ttlSeconds` (default 15 minutes, at most 1 hour). Needs `file.write`. Treat the URL as a secret until it expires.",
+        "operationId": "createUploadUrl",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileUrlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed upload URL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileUrlResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
