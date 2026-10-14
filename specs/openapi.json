@@ -395,6 +395,47 @@
             "format": "date-time",
             "description": "When the last resume or fork finished copying files in, or null."
           },
+          "hydration": {
+            "description": "Restore progress while `hydrated` is false, on GET /sandboxes/{id} only. Null in lists, after hydration, or when the sandbox does not answer within 1.5 s.",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "phase",
+                  "entriesDone",
+                  "entriesTotal",
+                  "percent"
+                ],
+                "properties": {
+                  "phase": {
+                    "type": "string",
+                    "description": "Restore step: `dvol` (docker volumes), `sysdelta` (system files), `images` (saved docker images), `hydrating` (the home directory), `reconciling` (the last check). `degraded` and `stuck` mean a step failed and is retried."
+                  },
+                  "entriesDone": {
+                    "type": "integer",
+                    "description": "Files, directories and links copied in so far."
+                  },
+                  "entriesTotal": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Files, directories and links this restore copies in. Null for the first seconds, until the system files are counted."
+                  },
+                  "percent": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "entriesDone of entriesTotal, 0-99. Files you change during the restore are yours, not copied, so it can stop short of 99; `hydrated` is the end signal."
+                  }
+                }
+              }
+            ]
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -483,7 +524,14 @@
               "null"
             ],
             "format": "date-time",
-            "description": "Automatic archival time, or null when auto-stop is disabled."
+            "description": "When the sandbox stops by itself (the stop starts within about 5 seconds), or null when auto-stop is disabled. A sandbox whose agent is working gets a fresh full TTL, and this time moves forward."
+          },
+          "ttlSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The auto-stop length as last set on create, resume, fork or PATCH, or null when auto-stop is disabled."
           },
           "desktopAvailable": {
             "type": "boolean"
@@ -563,7 +611,7 @@
               "use",
               "view"
             ],
-            "description": "What you may do with this sandbox. `owner`: you created it. `use`: a teammate's organization sandbox that is `noEnv` (created with it, or shared and restarted), so you can open, run commands in, prompt, resume and stop it. `view`: a teammate's organization sandbox that still holds their personal logins, so you can see it and stop it until they share it (`POST /sandboxes/{sandboxId}/share`)."
+            "description": "What you may do with this sandbox. `owner`: you created it. `use`: a teammate's organization sandbox that never received their personal logins (`noEnv`, shared and restarted, or created on an environment that passes nothing), so you can open, run commands in, prompt, resume and stop it. `view`: a teammate's organization sandbox that still holds their personal logins, so you can see it and stop it until they share it (`POST /sandboxes/{sandboxId}/share`)."
           },
           "holdsCreatorLogins": {
             "type": "boolean",
@@ -5395,7 +5443,7 @@
           },
           "accounts": {
             "type": "object",
-            "description": "Credentials with several accounts, keyed by credential id. Each lists every account (labels only), the one in use marked `active`.",
+            "description": "Credentials with several accounts, keyed by credential id. Each lists every account (labels only), the one in use marked `active`. Empty when you cannot manage the profile.",
             "additionalProperties": {
               "type": "array",
               "items": {
@@ -8670,7 +8718,7 @@
           "Boat"
         ],
         "summary": "List the accounts of a credential",
-        "description": "Every account of one credential (several ChatGPT sign-ins, several OpenAI keys), in the order they were added, the one in use marked. Labels only, never a secret. Needs an API key with `account.admin`.",
+        "description": "Every account of one credential (several ChatGPT sign-ins, several OpenAI keys), in the order they were added, the one in use marked. Labels only, never a secret. Needs an API key with `account.admin`, on a profile you manage: an org member who only uses an org profile gets `403`.",
         "operationId": "listCredentialAccounts",
         "responses": {
           "200": {
