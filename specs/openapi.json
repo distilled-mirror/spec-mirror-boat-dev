@@ -1631,7 +1631,7 @@
               "integer",
               "null"
             ],
-            "description": "Lifetime machine-time allowance for a trial that never paid. Null once the account has paid or has a plan."
+            "description": "Lifetime Boat-time allowance for new sandboxes while the account has not paid, a plan trial included. Every charge on the wallet counts. Null once the account has paid."
           },
           "trialLine": {
             "type": [
@@ -1639,6 +1639,39 @@
               "null"
             ],
             "description": "The trial limits in one readable line. Null on paid accounts."
+          },
+          "machineTypes": {
+            "type": "array",
+            "description": "Each sandbox type, and whether this account can create it now. A blocked type carries the reason.",
+            "items": {
+              "type": "object",
+              "required": [
+                "type",
+                "available",
+                "reason"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "default",
+                    "large",
+                    "xlarge"
+                  ]
+                },
+                "available": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Why the type is blocked, for example `not during the free trial; the first payment unlocks it`. Null when available."
+                }
+              }
+            }
           },
           "giftLimit": {
             "type": [
@@ -2596,6 +2629,7 @@
                       "github",
                       "google",
                       "email",
+                      "agentid",
                       "service"
                     ],
                     "description": "The login method the account was created with."
@@ -6786,12 +6820,10 @@
             "enum": [
               "removing",
               "waiting_for_uploads",
-              "kept_for_newer_snapshots",
-              "waiting_for_restore",
               "retrying",
               "completed"
             ],
-            "description": "What the background purge is doing. The target is already gone from every list, restore and fork once the operation exists. `waiting_for_uploads`: stored data is erased once the last upload URL issued for it expires (`expectedBy`). `kept_for_newer_snapshots`: a newer snapshot, or a sandbox forked or deployed from it, still builds on this data; it goes when they go. `waiting_for_restore`: a sandbox is still restoring from it. `retrying`: a transient fault, retried automatically."
+            "description": "What the background purge is doing. The target is already gone from every list, restore and fork once the operation exists. `waiting_for_uploads`: stored data is erased once the last upload URL issued for it expires (`expectedBy`). `retrying`: a transient fault, retried automatically. `completed`: a newer snapshot, a fork or a named snapshot made from it keeps the data it reads, until that is deleted too."
           },
           "expectedBy": {
             "type": [
@@ -7452,7 +7484,29 @@
                       "creditBalanceHours": 2,
                       "packBalanceSeconds": 500000,
                       "packBalanceHours": 138.89,
-                      "packBalanceDollars": 5
+                      "packBalanceDollars": 5,
+                      "machineTypes": [
+                        {
+                          "type": "small",
+                          "available": true,
+                          "reason": null
+                        },
+                        {
+                          "type": "default",
+                          "available": true,
+                          "reason": null
+                        },
+                        {
+                          "type": "large",
+                          "available": true,
+                          "reason": null
+                        },
+                        {
+                          "type": "xlarge",
+                          "available": false,
+                          "reason": "needs the $100/month plan or higher"
+                        }
+                      ]
                     }
                   }
                 }
@@ -9170,7 +9224,7 @@
           "Boat"
         ],
         "summary": "Get sandbox AI usage",
-        "description": "One sandbox's proxied AI usage per UTC day, credential and model, and whether it is blocked. Needs an API key with `box.read` on the sandbox.",
+        "description": "One sandbox's proxied AI usage per UTC day, credential and model, and whether it is blocked. Needs an API key with `sandbox.read` on the sandbox.",
         "operationId": "getSandboxAiUsage",
         "parameters": [
           {
