@@ -1761,7 +1761,7 @@
               "xlarge"
             ],
             "default": "default",
-            "description": "Machine size. `small` consumes machine time at half rate and `large` at twice the default rate (see the Billing guide). `xlarge` needs the $100/month plan or higher; lower plans get a 403 `machine_class_plan_required` on create, resume and fork. A fork inherits the source sandbox's type unless the fork request passes its own, and resume and fork can move a sandbox between sizes."
+            "description": "Machine size. `small` consumes machine time at half rate and `large` at twice the default rate (see the Billing guide). `xlarge` needs the $100/month plan or higher, or an account access grant from an administrator. Otherwise, create, resume and fork return 403 `machine_class_plan_required`. A fork inherits the source sandbox's type unless the fork request passes its own, and resume and fork can move a sandbox between sizes."
           },
           "ttlSeconds": {
             "oneOf": [
@@ -1883,7 +1883,7 @@
               "large",
               "xlarge"
             ],
-            "description": "Resume onto a different machine size. Omit to keep the sandbox's current type. `xlarge` needs the $100/month plan or higher (403 `machine_class_plan_required`). A resume already restores onto a fresh machine, so changing size costs nothing extra. Shrinking is rejected with `type_too_small` when the sandbox's data would not fit the smaller disk."
+            "description": "Resume onto a different machine size. Omit to keep the sandbox's current type. `xlarge` needs the $100/month plan or higher, or an account access grant from an administrator (403 `machine_class_plan_required` otherwise). A resume already restores onto a fresh machine, so changing size costs nothing extra. Shrinking is rejected with `type_too_small` when the sandbox's data would not fit the smaller disk."
           },
           "env": {
             "type": "object",
