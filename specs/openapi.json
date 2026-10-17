@@ -1813,6 +1813,13 @@
             "default": false,
             "description": "Pass `true` to get a sandbox only if a machine of this type is ready right now. The call answers within about 1.5 s: either the usual `202` with the sandbox, or `503` `no_ready_machine` with nothing created, billed, or counted against your start limits, so you can retry or fall back at once. Without it, a create waits for a machine to be built when none is ready. Works with `from`; fork and resume take it too."
           },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 1,
+            "description": "With `from`: create this many sandboxes from the named snapshot in one request. Boat creates them together, which is faster than separate creates when you need many sandboxes at once. Start limits and the active-sandbox limit count every sandbox of the batch; if the batch does not fit, nothing is created. The answer lists all of them in `sandboxes` (and the first one in `sandbox`). Refused with 400 `count_requires_from` without `from`, and with 400 `count_with_fail_fast` together with `failFast`."
+          },
           "setupScript": {
             "type": "string",
             "maxLength": 65536,
@@ -3076,6 +3083,13 @@
               },
               "sandbox": {
                 "$ref": "#/components/schemas/Sandbox"
+              },
+              "sandboxes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Sandbox"
+                },
+                "description": "Present when the request set `count` above 1. Every sandbox of the batch, in creation order."
               },
               "giftLimitNotice": {
                 "type": "string",
@@ -10423,7 +10437,7 @@
           "Boat"
         ],
         "summary": "Recover a sandbox that stopped responding",
-        "description": "Power-cycle the machine of a sandbox that stopped answering. The disk is not\ntouched. The sandbox usually answers again within 1-2 minutes and then saves\nyour work by itself; `sandbox.recovered` fires when it does.\n\nRefused with `409`:\n- `sandbox_is_reachable`: the sandbox answers normally.\n- `too_soon`: a recover started less than 10 minutes ago.\n- `no_machine`: the sandbox has no machine. Resume it instead.\n- `recover_unsupported`: its machine cannot be power-cycled. Wait for it to\n  answer, or resume it from its last snapshot.\n- `reset_failed`: the power-cycle failed. Reply to the incident email.\n",
+        "description": "Power-cycle the machine of a sandbox that stopped answering. The disk is not\ntouched. The sandbox usually answers again within 1-2 minutes and then saves\nyour work by itself; `sandbox.recovered` fires when it does.\n\nRefused with `409`:\n- `sandbox_is_reachable`: the sandbox answers normally.\n- `too_soon`: a recover started less than 10 minutes ago.\n- `no_machine`: the sandbox has no machine. Resume it instead.\n- `recover_unsupported`: its machine cannot be power-cycled. Wait for it to\n  answer, or stop it with `{\"force\": true}` and resume it from its last\n  good snapshot. With no snapshot, a forced stop loses everything.\n- `reset_failed`: the power-cycle failed. Reply to the incident email.\n",
         "operationId": "recover",
         "parameters": [
           {
@@ -10479,11 +10493,11 @@
                   "type": "sandbox.error",
                   "status": 409,
                   "code": "recover_unsupported",
-                  "message": "This sandbox runs on a machine that cannot be power-cycled. Wait for it to answer again, or resume it from its last snapshot.",
+                  "message": "This sandbox runs on a machine that cannot be power-cycled. Wait for it to answer again, or run `boat stop --force` to stop it with its last good snapshot (anything written after it is lost; with no snapshot, everything is lost), then resume it.",
                   "requestId": "req_01HX...",
                   "error": {
                     "code": "recover_unsupported",
-                    "message": "This sandbox runs on a machine that cannot be power-cycled. Wait for it to answer again, or resume it from its last snapshot.",
+                    "message": "This sandbox runs on a machine that cannot be power-cycled. Wait for it to answer again, or run `boat stop --force` to stop it with its last good snapshot (anything written after it is lost; with no snapshot, everything is lost), then resume it.",
                     "status": 409
                   }
                 }
