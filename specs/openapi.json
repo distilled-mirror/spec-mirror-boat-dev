@@ -360,6 +360,14 @@
             ],
             "description": "Why the sandbox is stopped, failed or cancelled, or null."
           },
+          "dataExpiredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When Boat deleted the snapshot data of this stopped sandbox, 14 days after it stopped. Resume and fork then fail with `409 snapshot_data_expired`. Null while the data is kept."
+          },
           "health": {
             "type": "string",
             "enum": [
