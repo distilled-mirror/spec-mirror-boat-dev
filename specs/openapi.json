@@ -619,11 +619,47 @@
               "use",
               "view"
             ],
-            "description": "What you may do with this sandbox. `owner`: you created it. `use`: a teammate's organization sandbox that never received their personal logins (`noEnv`, shared and restarted, or created on an environment that passes nothing), so you can open, run commands in, prompt, resume and stop it. `view`: a teammate's organization sandbox that still holds their personal logins, so you can see it and stop it until they share it (`POST /sandboxes/{sandboxId}/share`)."
+            "description": "What you may do with this sandbox. `owner`: you created it. `use`: a teammate's organization sandbox that is `shared` (see `visibility`), so you can open, run commands in, prompt, resume and stop it. `view`: a teammate's organization sandbox that is `private`, so you can see it and stop it until they share it (`POST /sandboxes/{sandboxId}/share`)."
           },
           "holdsCreatorLogins": {
             "type": "boolean",
             "description": "True while the sandbox still holds its creator's personal logins (GitHub token, model logins, secrets). Other members can only see such a sandbox."
+          },
+          "visibility": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "shared",
+              "private",
+              null
+            ],
+            "description": "Organization sandboxes only; null for a personal sandbox. `shared`: every member can use it. It holds none of its creator's personal logins (`noEnv`, shared and restarted, or created on an environment that passes nothing) and its creator did not make it private. `private`: only its creator can use it. It holds their logins, or its creator made it private (`POST /sandboxes/{sandboxId}/unshare`, or the organization's `newSandboxesPrivate` default)."
+          },
+          "cost": {
+            "type": "object",
+            "description": "Only with `include=cost` on `GET /sandboxes`. Machine time this sandbox used this calendar month (UTC), at list price. Same meter as `GET /sandboxes/{sandboxId}/usage`.",
+            "required": [
+              "since",
+              "seconds",
+              "dollars"
+            ],
+            "properties": {
+              "since": {
+                "type": "string",
+                "format": "date-time",
+                "description": "The 1st of this month, 00:00 UTC."
+              },
+              "seconds": {
+                "type": "integer",
+                "description": "Billable machine-seconds, size multiplier applied."
+              },
+              "dollars": {
+                "type": "number",
+                "description": "seconds / secondsPerDollar, at list price."
+              }
+            }
           },
           "wipePendingUntilRestart": {
             "type": "boolean",
@@ -7240,6 +7276,91 @@
         }
       }
     },
+    "/orgs/{org}": {
+      "patch": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Update organization settings",
+        "description": "Owners and admins set whether new sandboxes of the organization start private (only their creator can use them) or shared (every member can use those that hold none of their creator's logins). The default is shared. Existing sandboxes keep their setting; their creators change it with `POST /sandboxes/{sandboxId}/share` and `POST /sandboxes/{sandboxId}/unshare`. A fork of a private sandbox is private.",
+        "operationId": "updateOrganization",
+        "parameters": [
+          {
+            "name": "org",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization id or name."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "newSandboxesPrivate"
+                ],
+                "properties": {
+                  "newSandboxesPrivate": {
+                    "type": "boolean",
+                    "description": "True = new sandboxes start private. False = they start shared."
+                  }
+                }
+              },
+              "examples": {
+                "private": {
+                  "value": {
+                    "newSandboxesPrivate": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The setting is saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "type": "string",
+                      "examples": [
+                        "org.updated"
+                      ]
+                    },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "newSandboxesPrivate": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/orgs/active": {
       "patch": {
         "tags": [
@@ -7815,9 +7936,10 @@
                   },
                   "ttl": {
                     "type": "string",
-                    "description": "Duration such as 90d, 24h, or seconds. Max 365d.",
+                    "description": "Duration such as 90d, 24h, or seconds, up to 365d; or `never` for a key that works until revoked. Default 90d.",
                     "examples": [
-                      "90d"
+                      "90d",
+                      "never"
                     ]
                   },
                   "preset": {
@@ -10072,6 +10194,17 @@
               "type": "string"
             },
             "description": "Comma-separated sandbox state filter, for example `ready,idle,running`."
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cost"
+              ]
+            },
+            "description": "`cost` adds each sandbox's `cost` this calendar month (UTC), at list price."
           }
         ],
         "responses": {
@@ -10394,7 +10527,7 @@
           "Boat"
         ],
         "summary": "Share sandbox with the organization",
-        "description": "Let every member of the organization that pays for this sandbox use it.\n\nYour personal logins (GitHub token, Claude and Codex logins, environment secrets,\nthe sandbox's own CLI key) are never pushed to it again and are wiped off its disk\nat its next start, so a teammate never acts as you. Files you wrote stay. One-way:\nthe sandbox stays like a `noEnv` sandbox from then on. A running sandbox stays\n`view` for the organization until you stop and resume it (`restartRequired`).\n\nOnly the person who created the sandbox can share it, and only a sandbox billed to\nan organization. Sharing an already shared sandbox is a no-op.\n",
+        "description": "Let every member of the organization that pays for this sandbox use it.\n\nA sandbox that holds none of your personal logins is shared at once.\n\nA sandbox that holds them: your personal logins (GitHub token, Claude and Codex logins,\nenvironment secrets, the sandbox's own CLI key) are never pushed to it again and are\nwiped off its disk at its next start, so a teammate never acts as you. Files you wrote\nstay. The wipe is one-way: the sandbox stays like a `noEnv` sandbox from then on. A\nrunning sandbox stays `view` for the organization until you stop and resume it\n(`restartRequired`): its running programs hold your logins in memory.\n\nTeammates never read history recorded before the share.\n\nOnly the person who created the sandbox can share it, and only a sandbox billed to\nan organization. Sharing an already shared sandbox is a no-op. Undo with\n`POST /sandboxes/{sandboxId}/unshare`.\n",
         "operationId": "share",
         "parameters": [
           {
@@ -10415,6 +10548,53 @@
                     "restartRequired": {
                       "type": "boolean",
                       "description": "True when the sandbox was running: what runs on it still holds your logins in memory, so it stays `view` for the organization until you stop and resume it."
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/unshare": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Make an organization sandbox private",
+        "description": "Make a shared organization sandbox private again, at once. Only you can then use it.\nTeammates still see it in their list and can stop it. Their SSH keys are removed from\nthe running machine.\n\nNothing on the sandbox changes: files, installs and its environment stay. Undo with\n`POST /sandboxes/{sandboxId}/share`.\n\nOnly the person who created the sandbox can make it private, and only a sandbox billed\nto an organization. Making a private sandbox private is a no-op.\n",
+        "operationId": "unshare",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sandbox is private.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sandbox": {
+                      "$ref": "#/components/schemas/Sandbox"
                     },
                     "message": {
                       "type": "string"
