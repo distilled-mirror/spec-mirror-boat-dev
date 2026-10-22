@@ -695,6 +695,27 @@
             ],
             "description": "Status of the most recent snapshot attempt, or null if none. A value other than completed while snapshotCompletedAt stays stale indicates failing snapshots."
           },
+          "lastReboot": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The last time the sandbox's kernel restarted on its machine, or null if it never did. Every process running at that time ended. `crash` means the system log ended with no shutdown, for example after a kernel panic.",
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "crash",
+                  "clean",
+                  "unknown"
+                ]
+              }
+            }
+          },
           "setupStatus": {
             "type": [
               "string",
