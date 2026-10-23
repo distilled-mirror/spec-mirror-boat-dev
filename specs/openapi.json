@@ -2380,6 +2380,9 @@
             "type": "boolean",
             "description": "Only with `safeForThirdParties` true. The sandboxes still get AI credentials, as AI credentials proxy placeholders. Real keys never enter them."
           },
+          "access": {
+            "$ref": "#/components/schemas/ResourceAccess"
+          },
           "envContents": {
             "type": "string",
             "description": "The latest version's .env-style content. Treat as sensitive."
@@ -2504,6 +2507,9 @@
           "proxyAiCredentials": {
             "type": "boolean",
             "description": "With `safeForThirdParties` true, pass AI credentials as proxy placeholders. Setting true needs the AI credentials proxy on for the profile owner, else `400 ai_proxy_off`."
+          },
+          "access": {
+            "$ref": "#/components/schemas/ResourceAccessUpdate"
           },
           "envContents": {
             "type": "string",
@@ -3082,6 +3088,30 @@
               },
               "pageInfo": {
                 "$ref": "#/components/schemas/PageInfo"
+              },
+              "deletedCost": {
+                "type": "object",
+                "description": "Only with `include=cost`, and not for an API key limited to some sandboxes. Machine time this calendar month (UTC) of deleted sandboxes this list would otherwise show. They are not in the list, but their time was billed. Add it to the sandboxes' `cost` to get the full total.",
+                "required": [
+                  "since",
+                  "seconds",
+                  "dollars"
+                ],
+                "properties": {
+                  "since": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "The 1st of this month, 00:00 UTC."
+                  },
+                  "seconds": {
+                    "type": "integer",
+                    "description": "Billable machine-seconds, size multiplier applied."
+                  },
+                  "dollars": {
+                    "type": "number",
+                    "description": "seconds / secondsPerDollar, at list price."
+                  }
+                }
               }
             }
           }
@@ -5477,10 +5507,13 @@
           "deepseek-api-key",
           "moonshot-api-key",
           "mistral-api-key",
+          "xai-api-key",
+          "opencode-api-key",
           "claude-subscription",
           "chatgpt-subscription",
           "kimi-subscription",
           "mistral-vibe-subscription",
+          "grok-subscription",
           "claude-bedrock",
           "codex-bedrock"
         ]
@@ -5578,6 +5611,9 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "access": {
+            "$ref": "#/components/schemas/ResourceAccess"
           }
         }
       },
@@ -5675,6 +5711,60 @@
           "isDefault": {
             "type": "boolean",
             "description": "Send true to make this profile its owner's default. The previous default loses the flag. False is ignored; make another profile the default instead."
+          },
+          "access": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ResourceAccessUpdate"
+              }
+            ],
+            "description": "Organization profiles only. Organization owner only."
+          }
+        }
+      },
+      "ResourceAccess": {
+        "type": "object",
+        "required": [
+          "restricted",
+          "members"
+        ],
+        "description": "Which organization members can use this organization environment or profile. `restricted` false means every member. `restricted` true means owners, admins and `members` only. Others do not see it in lists. Personal environments and profiles always return `restricted` false.",
+        "properties": {
+          "restricted": {
+            "type": "boolean"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Member ids. Empty when `restricted` is false."
+          }
+        }
+      },
+      "ResourceAccessUpdate": {
+        "type": "object",
+        "required": [
+          "restricted"
+        ],
+        "description": "Set who can use an organization environment (owner or admin) or profile (owner). A change does not touch running sandboxes. A bad list returns `400 invalid_access`.",
+        "properties": {
+          "restricted": {
+            "type": "boolean",
+            "description": "False opens it to every member. True limits it to owners, admins and `members`."
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Member ids or emails of active members. Replaces the full list.",
+            "examples": [
+              [
+                "a@example.com",
+                "b@example.com"
+              ]
+            ]
           }
         }
       },
@@ -7143,6 +7233,33 @@
                   "error": {
                     "code": "forbidden",
                     "message": "Forbidden",
+                    "status": 403
+                  },
+                  "requestId": "req_01HX..."
+                }
+              }
+            }
+          }
+        }
+      },
+      "EnvironmentForbidden": {
+        "description": "`environment_forbidden`: the organization limits this environment to other members. Ask an owner or admin to add you. Other `403` codes can also apply.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            },
+            "examples": {
+              "environmentForbidden": {
+                "value": {
+                  "ok": false,
+                  "type": "sandbox.error",
+                  "status": 403,
+                  "code": "environment_forbidden",
+                  "message": "You cannot use this environment.",
+                  "error": {
+                    "code": "environment_forbidden",
+                    "message": "You cannot use this environment.",
                     "status": 403
                   },
                   "requestId": "req_01HX..."
@@ -10337,6 +10454,9 @@
           "402": {
             "$ref": "#/components/responses/PaymentRequired"
           },
+          "403": {
+            "$ref": "#/components/responses/EnvironmentForbidden"
+          },
           "409": {
             "$ref": "#/components/responses/Conflict"
           },
@@ -10772,6 +10892,9 @@
           "402": {
             "$ref": "#/components/responses/PaymentRequired"
           },
+          "403": {
+            "$ref": "#/components/responses/EnvironmentForbidden"
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
           },
@@ -10900,6 +11023,9 @@
           },
           "402": {
             "$ref": "#/components/responses/PaymentRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/EnvironmentForbidden"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
