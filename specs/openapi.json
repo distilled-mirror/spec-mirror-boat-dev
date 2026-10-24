@@ -1866,7 +1866,7 @@
           "snapshots": {
             "type": "boolean",
             "default": true,
-            "description": "Pass `false` to never snapshot this sandbox. Nothing is captured in the background, so it pays no CPU or memory for it, and stopping it erases its disk the way zero data retention does. It cannot be resumed, forked, or saved as a named snapshot, and if its machine fails there is no backup to rebuild it from."
+            "description": "Pass `false` to never snapshot this sandbox. Nothing is captured in the background, so it pays no CPU or memory for it, and stopping it erases its disk the way zero data retention does. It cannot be resumed, forked, or saved as a saved snapshot, and if its machine fails there is no backup to rebuild it from."
           },
           "monitoring": {
             "type": "boolean",
@@ -1883,12 +1883,67 @@
             "minimum": 1,
             "maximum": 1000,
             "default": 1,
-            "description": "With `from`: create this many sandboxes from the named snapshot in one request. Boat creates them together, which is faster than separate creates when you need many sandboxes at once. Start limits and the active-sandbox limit count every sandbox of the batch; if the batch does not fit, nothing is created. The answer lists all of them in `sandboxes` (and the first one in `sandbox`). Refused with 400 `count_requires_from` without `from`, and with 400 `count_with_fail_fast` together with `failFast`."
+            "description": "With `from`: create this many sandboxes from the saved snapshot in one request. Boat creates them together, which is faster than separate creates when you need many sandboxes at once. Start limits and the active-sandbox limit count every sandbox of the batch; if the batch does not fit, nothing is created. The answer lists all of them in `sandboxes` (and the first one in `sandbox`). Refused with 400 `count_requires_from` without `from`, and with 400 `count_with_fail_fast` together with `failFast`."
           },
           "setupScript": {
             "type": "string",
             "maxLength": 65536,
-            "description": "Shell script that runs on the sandbox after it is ready. Ready means \"ready to accept the user\", not \"setup done\": the script starts in the background once provisioning completes and never blocks the sandbox becoming usable. It runs as the sandbox user (`user`, not root; `sudo` needs no password) via `bash`, with the sandbox's environment applied, and its output goes to a log file on the sandbox. Observe the outcome as `setupStatus` (pending/running/done/failed) and `setupError` on the sandbox. Rejected with a 400 `invalid_setup_script` error when it is not a string or exceeds 64KB."
+            "description": "Shell script that runs on the sandbox after it is ready. Ready means \"ready to accept the user\", not \"setup done\": the script starts in the background once provisioning completes and never blocks the sandbox becoming usable. It runs as the sandbox user (`user`, not root; `sudo` needs no password) via `bash`, with the sandbox's environment applied, and its output goes to a log file on the sandbox. Observe the outcome as `setupStatus` (pending/running/done/failed) and `setupError` on the sandbox. Rejected with a 400 `invalid_setup_script` error when it is not a string or exceeds 64KB. When the request also has `files`, the script starts after every file is written."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Display name of the sandbox, the same value `PATCH /sandboxes/{id}` sets. A sandbox created `from` a saved snapshot is named after the snapshot when this is omitted."
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "shared"
+            ],
+            "description": "Who can use a sandbox billed to an organization, with the same rules as the sandbox's `visibility` field. `private`: only you can use it. `shared`: every member can, as long as it holds none of your personal logins (`noEnv`, or an environment that passes nothing). Omitted, the organization's default for new sandboxes applies (`PATCH /orgs/{org}` `newSandboxesPrivate`). It is set before the sandbox gets a machine, so a `private` sandbox is never shared, not even for a moment, and needs no `unshare` call. A personal sandbox is always private: `shared` is refused with 400 `not_org_sandbox`. Change it later with `POST /sandboxes/{id}/share` and `POST /sandboxes/{id}/unshare`."
+          },
+          "hostedPorts": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "Ports to host on public HTTPS URLs, each exactly as `POST /sandboxes/{id}/host` does. The create waits for the sandbox's machine (up to 60 s, usually under a second), hosts every port at once and answers the URLs in `hostedPorts`. The ports are routed before the sandbox is ready, so a service that starts later is reachable as soon as it listens. Refused with 400 `invalid_hosted_ports` for a bad entry or a duplicate port, with 400 `count_with_hosted_ports` together with `count`, and with 400 `fail_fast_with_hosted_ports` together with `failFast`.",
+            "items": {
+              "$ref": "#/components/schemas/HostPortRequest"
+            }
+          },
+          "files": {
+            "type": "array",
+            "maxItems": 32,
+            "description": "Files to write on the sandbox, each like `PUT /sandboxes/{id}/files` (a path under `/home/user` or `/tmp`, relative paths resolve against `/home/user`; missing folders are created). Boat writes them once the sandbox's disk is in place and before it reports `ready`, so a client that sees `ready`, and the `setupScript`, always find them. They are written once, at the first start: a resume does not write them again. At most 256KB in total; upload bigger files with `POST /sandboxes/{id}/files/upload-url`. `setupStatus` covers them: it stays `pending` until they are written, and a write that fails sets it `failed` with the path and the reason in `setupError` (the setup script then does not run). Refused with 400 `invalid_files` for a bad path, a duplicate path or a body over the limits.",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "content"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "examples": [
+                    "workspace/.env",
+                    "/home/user/.config/app.json",
+                    "/tmp/boot.txt"
+                  ]
+                },
+                "content": {
+                  "type": "string",
+                  "description": "File contents, as text or base64 (see `encoding`)."
+                },
+                "encoding": {
+                  "type": "string",
+                  "enum": [
+                    "utf8",
+                    "base64"
+                  ],
+                  "default": "utf8"
+                }
+              }
+            }
           },
           "org": {
             "type": "string",
@@ -1900,7 +1955,7 @@
           },
           "from": {
             "type": "string",
-            "description": "Create the sandbox from a named snapshot (saved with `POST /named-snapshots`, or `boat snapshot <id> <name>` in the CLI). The sandbox starts from that exact frozen state. Omitting `type` inherits the type the snapshot was saved from; env and no-env inherit from the snapshot's source sandbox unless the request passes its own, with the same rules as forking. Also accepts a share code (`bsh_...`) that another account made with `POST /named-snapshots/{name}/shares`. The new sandbox lives in and is billed to your account. It does not get the owner's per-sandbox env; your own environment applies normally. A wrong or revoked code returns `404 snapshot_not_found`."
+            "description": "Create the sandbox from a saved snapshot (saved with `POST /saved-snapshots`, or `boat snapshot <id> <name>` in the CLI). The sandbox starts from that exact frozen state. Omitting `type` inherits the type the snapshot was saved from; env and no-env inherit from the snapshot's source sandbox unless the request passes its own, with the same rules as forking. Also accepts a share code (`bsh_...`) that another account made with `POST /saved-snapshots/{name}/shares`. The new sandbox lives in and is billed to your account. It does not get the owner's per-sandbox env; your own environment applies normally. A wrong or revoked code returns `404 snapshot_not_found`."
           }
         },
         "examples": [
@@ -1924,6 +1979,27 @@
           {
             "ttlSeconds": null,
             "noEnv": true
+          },
+          {
+            "from": "my-template",
+            "name": "session-42",
+            "visibility": "private",
+            "hostedPorts": [
+              {
+                "port": 8080,
+                "public": true,
+                "title": "code-server"
+              },
+              {
+                "port": 3000
+              }
+            ],
+            "files": [
+              {
+                "path": "workspace/.session.env",
+                "content": "SESSION_ID=42\n"
+              }
+            ]
           }
         ]
       },
@@ -3185,6 +3261,46 @@
                   "$ref": "#/components/schemas/Sandbox"
                 },
                 "description": "Present when the request set `count` above 1. Every sandbox of the batch, in creation order."
+              },
+              "hostedPorts": {
+                "type": "array",
+                "description": "Present when the request set `hostedPorts`, in request order. Each entry is what `POST /sandboxes/{id}/host` answers for that port: `url`, `access`, `isProtected` and `localhost`, or `error` and `message` when that one port could not be hosted (the sandbox is created anyway; host the port again with `POST /sandboxes/{id}/host`).",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "required": [
+                    "port"
+                  ],
+                  "properties": {
+                    "port": {
+                      "type": "integer"
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Public HTTPS URL. Carries the `_token` query parameter unless the port is public; redact from logs."
+                    },
+                    "isProtected": {
+                      "type": "boolean"
+                    },
+                    "access": {
+                      "type": "string",
+                      "enum": [
+                        "private",
+                        "public"
+                      ]
+                    },
+                    "localhost": {
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
               },
               "giftLimitNotice": {
                 "type": "string",
@@ -6305,7 +6421,7 @@
               "captured",
               "template"
             ],
-            "description": "`template` = this Sandbox has snapshots off, so Boat never captures it: the row is a copy of the template, named snapshot or Sandbox it was created from. `captured` = this Sandbox has snapshots on: its own captures, plus the copies Boat makes when the Sandbox is created from a source, forked or resumed."
+            "description": "`template` = this Sandbox has snapshots off, so Boat never captures it: the row is a copy of the template, saved snapshot or Sandbox it was created from. `captured` = this Sandbox has snapshots on: its own captures, plus the copies Boat makes when the Sandbox is created from a source, forked or resumed."
           }
         }
       },
@@ -6361,6 +6477,227 @@
                     "type": "null"
                   }
                 ]
+              }
+            }
+          }
+        ]
+      },
+      "SavedSnapshot": {
+        "type": "object",
+        "description": "A saved snapshot: a frozen copy of a sandbox's disk at one moment, saved under a name you pick. Independent of the source sandbox's later life: the sandbox can change, stop, or be deleted and the saved snapshot still deploys. Saved snapshots never expire; re-saving a name replaces its artifact.",
+        "required": [
+          "name",
+          "status",
+          "sourceSandboxId",
+          "createdAt"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "description": "The user-chosen handle, unique within your account."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "saving",
+              "ready",
+              "failed"
+            ],
+            "description": "`saving` while the capture and pin are in flight (a live source sandbox takes a fresh snapshot first, which can run minutes), `ready` when deployable, `failed` if the save did not complete (see `error`; save again to retry)."
+          },
+          "error": {
+            "type": "string",
+            "description": "Failure reason. Only present when `status` is `failed`."
+          },
+          "sourceSandboxId": {
+            "type": "string",
+            "description": "The sandbox this snapshot was saved from (display only)."
+          },
+          "snapshotId": {
+            "type": "string",
+            "description": "The frozen artifact behind the name. Present once `status` is `ready`. Accepted by `GET /api/boat/snapshots/{snapshotId}/tree` to browse its files."
+          },
+          "type": {
+            "type": "string",
+            "description": "Sandbox type the snapshot was saved from. Deploys default to it."
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "description": "Restored content size of the frozen state, in bytes."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SavedSnapshotListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "snapshots"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "snapshot.saved.list"
+              },
+              "snapshots": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SavedSnapshot"
+                }
+              },
+              "allowance": {
+                "$ref": "#/components/schemas/SavedSnapshotAllowance"
+              }
+            }
+          }
+        ]
+      },
+      "SavedSnapshotAllowance": {
+        "type": "object",
+        "description": "What the request's wallet (your active organization, `?org=`, or personal) pays for saved snapshots. 10 are free per wallet; each one above costs $1.70 a month, charged daily from usage. An organization's count includes every member's names billed to it.",
+        "properties": {
+          "org": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Organization the numbers are for. null = personal."
+          },
+          "orgName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "That organization's name."
+          },
+          "included": {
+            "type": "integer",
+            "description": "Saved snapshots the plan includes: 10 per $20 of plan per seat, never fewer than 10."
+          },
+          "free": {
+            "type": "integer",
+            "deprecated": true,
+            "description": "Same value as included. Kept for older clients."
+          },
+          "used": {
+            "type": "integer",
+            "description": "Saved snapshots this wallet keeps."
+          },
+          "extra": {
+            "type": "integer",
+            "description": "Saved snapshots above the included ones."
+          },
+          "extraMonthlyDollars": {
+            "type": "number",
+            "description": "What the extra ones cost per month."
+          },
+          "extraDailyDollars": {
+            "type": "number",
+            "description": "Boat time the extra ones take per day, in dollars (the daily charge)."
+          },
+          "pricePerExtraMonthlyDollars": {
+            "type": "number",
+            "description": "Monthly price of one extra saved snapshot."
+          }
+        }
+      },
+      "SavedSnapshotInfoResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "snapshot"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "snapshot.saved.info"
+              },
+              "snapshot": {
+                "$ref": "#/components/schemas/SavedSnapshot"
+              }
+            }
+          }
+        ]
+      },
+      "SavedSnapshotSaveRequest": {
+        "type": "object",
+        "required": [
+          "sandboxId",
+          "name"
+        ],
+        "properties": {
+          "sandboxId": {
+            "type": "string",
+            "description": "The sandbox whose current state to freeze."
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "description": "Name to save under. 1-63 lowercase letters, digits, or dashes, starting with a letter or digit. Reusing one of your existing names replaces that snapshot's artifact. `latest`, `tree`, `pull`, `rm`, `save`, `current`, `self`, and `new` are reserved."
+          }
+        }
+      },
+      "SavedSnapshotSavingResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "status",
+              "snapshot"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "snapshot.saved.saving"
+              },
+              "status": {
+                "type": "string",
+                "const": "saving"
+              },
+              "snapshot": {
+                "$ref": "#/components/schemas/SavedSnapshot"
+              }
+            }
+          }
+        ]
+      },
+      "SavedSnapshotDeletedResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "snapshot.saved.deleted"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "const": "deleted"
               }
             }
           }
@@ -6992,7 +7329,7 @@
               "retrying",
               "completed"
             ],
-            "description": "What the background purge is doing. The target is already gone from every list, restore and fork once the operation exists. `waiting_for_uploads`: stored data is erased once the last upload URL issued for it expires (`expectedBy`). `retrying`: a transient fault, retried automatically. `completed`: a newer snapshot, a fork or a named snapshot made from it keeps the data it reads, until that is deleted too."
+            "description": "What the background purge is doing. The target is already gone from every list, restore and fork once the operation exists. `waiting_for_uploads`: stored data is erased once the last upload URL issued for it expires (`expectedBy`). `retrying`: a transient fault, retried automatically. `completed`: a newer snapshot, a fork or a saved snapshot made from it keeps the data it reads, until that is deleted too."
           },
           "expectedBy": {
             "type": [
@@ -8060,7 +8397,7 @@
           "Boat"
         ],
         "summary": "Create a scoped API key",
-        "description": "Creates a scoped, expiring API key. Requires a dashboard/CLI session or an admin-scoped token. The secret is returned once. This dedicated path returns a typed 503 until scoped credential creation is activated.",
+        "description": "Creates a scoped, expiring API key. Requires a dashboard/CLI session or an admin-scoped token. The secret is returned once. An unknown field is a 400, so a misspelled scope never creates a full-access key. environmentIds takes your own environments and the org environments you can use. This dedicated path returns a typed 503 until scoped credential creation is activated.",
         "operationId": "createScopedApiKey",
         "requestBody": {
           "required": true,
@@ -8068,6 +8405,7 @@
             "application/json": {
               "schema": {
                 "type": "object",
+                "additionalProperties": false,
                 "properties": {
                   "name": {
                     "type": "string"
@@ -8183,7 +8521,7 @@
           "Boat"
         ],
         "summary": "Revoke an API key",
-        "description": "Revokes the key immediately. Requires a dashboard or CLI session.",
+        "description": "Revokes the key immediately. Requires a dashboard or CLI session, or an admin-scoped key. A key revokes itself or a key it could create (same or fewer actions, sandboxes and environments, no later expiry).",
         "operationId": "revokeApiKey",
         "responses": {
           "200": {
@@ -8224,7 +8562,7 @@
           "Boat"
         ],
         "summary": "Rotate an API key",
-        "description": "Replaces the raw secret without changing expiry or scope. Requires a dashboard or CLI session.",
+        "description": "Replaces the raw secret without changing expiry or scope. Requires a dashboard or CLI session, or an admin-scoped key. A key rotates itself or a key it could create.",
         "operationId": "rotateApiKey",
         "responses": {
           "200": {
@@ -10566,7 +10904,7 @@
           "Boat"
         ],
         "summary": "Permanently delete sandbox data",
-        "description": "Accept irreversible background deletion of the sandbox machine, snapshots, and content-bearing records. This is not archive: the sandbox cannot be resumed. Named snapshots and other shared artifacts remain independent. Poll the returned operation until `completed`.",
+        "description": "Accept irreversible background deletion of the sandbox machine, snapshots, and content-bearing records. This is not archive: the sandbox cannot be resumed. Saved snapshots and other shared artifacts remain independent. Poll the returned operation until `completed`.",
         "operationId": "deleteSandbox",
         "parameters": [
           {
@@ -11421,7 +11759,7 @@
           "Boat"
         ],
         "summary": "Read a file from a sandbox",
-        "description": "Files up to 5 MiB. For a larger file, use `POST /sandboxes/{sandboxId}/files/download-url`.",
+        "description": "Files up to 5 MiB. For a larger file, use `POST /sandboxes/{sandboxId}/files/download-url`. On a sandbox that is still starting, the call waits until it is ready (up to 60 s, like a command), so it reads the sandbox's own disk and never the machine's stock one.",
         "operationId": "readFile",
         "parameters": [
           {
@@ -11470,7 +11808,7 @@
           "Boat"
         ],
         "summary": "Write a file in a sandbox",
-        "description": "Files up to 5 MiB after decoding. For a larger file, use `POST /sandboxes/{sandboxId}/files/upload-url`.",
+        "description": "Files up to 5 MiB after decoding. For a larger file, use `POST /sandboxes/{sandboxId}/files/upload-url`. On a sandbox that is still starting, the call waits until it is ready (up to 60 s, like a command): a sandbox's files are in place only once it is ready, so a write any earlier would not stay. A `200` always means the file is on the sandbox's disk.",
         "operationId": "writeFile",
         "parameters": [
           {
@@ -12477,6 +12815,8 @@
         "summary": "List named snapshots",
         "description": "List your named snapshots, newest first.",
         "operationId": "listNamedSnapshots",
+        "deprecated": true,
+        "x-hidden": true,
         "responses": {
           "200": {
             "description": "Named snapshots owned by the authenticated Boat user.",
@@ -12500,6 +12840,8 @@
         "summary": "Save a named snapshot",
         "description": "Freeze a sandbox's current state under a name (`boat snapshot <id> <name>` in the CLI). Answers `202` immediately with the snapshot in `saving`; a running sandbox takes a fresh capture first, which can run minutes. Poll `GET /named-snapshots/{name}` until the status settles at `ready` or `failed`. Reusing one of your existing names replaces that snapshot's artifact once the new save is ready.",
         "operationId": "saveNamedSnapshot",
+        "deprecated": true,
+        "x-hidden": true,
         "requestBody": {
           "required": true,
           "content": {
@@ -12560,6 +12902,8 @@
         ],
         "summary": "Get a named snapshot",
         "operationId": "getNamedSnapshot",
+        "deprecated": true,
+        "x-hidden": true,
         "parameters": [
           {
             "name": "name",
@@ -12596,6 +12940,8 @@
         "summary": "Remove a named snapshot",
         "description": "Remove a named snapshot and release its storage (`boat snapshot rm <name>` in the CLI). Sandboxes already deployed from it are unaffected.",
         "operationId": "deleteNamedSnapshot",
+        "deprecated": true,
+        "x-hidden": true,
         "parameters": [
           {
             "name": "name",
@@ -12636,7 +12982,174 @@
         }
       }
     },
-    "/named-snapshots/{name}/shares": {
+    "/saved-snapshots": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "List saved snapshots",
+        "description": "List your saved snapshots, newest first.",
+        "operationId": "listSavedSnapshots",
+        "responses": {
+          "200": {
+            "description": "Saved snapshots owned by the authenticated Boat user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSnapshotListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Save a saved snapshot",
+        "description": "Freeze a sandbox's current state under a name (`boat snapshot <id> <name>` in the CLI). Answers `202` immediately with the snapshot in `saving`; a running sandbox takes a fresh capture first, which can run minutes. Poll `GET /saved-snapshots/{name}` until the status settles at `ready` or `failed`. Reusing one of your existing names replaces that snapshot's artifact once the new save is ready.",
+        "operationId": "saveSavedSnapshot",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavedSnapshotSaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Save accepted and running in the background.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSnapshotSavingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "description": "`credit_required`: the wallet already keeps 10 or more saved snapshots and has no credit left. Each saved snapshot above the plan's included count costs $1.70 a month, charged daily. Add credit or remove one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`save_in_progress` when a save under this name is already running; wait for it to settle rather than retrying immediately.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/saved-snapshots/{name}": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get a saved snapshot",
+        "operationId": "getSavedSnapshot",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The saved snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSnapshotInfoResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Remove a saved snapshot",
+        "description": "Remove a saved snapshot and release its storage (`boat snapshot rm <name>` in the CLI). Sandboxes already deployed from it are unaffected.",
+        "operationId": "deleteSavedSnapshot",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedSnapshotDeletedResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`save_in_progress`: a save under this name is still running. Wait for it to settle before removing it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/saved-snapshots/{name}/shares": {
       "parameters": [
         {
           "name": "name",
@@ -12651,8 +13164,8 @@
         "tags": [
           "Boat"
         ],
-        "summary": "List share codes of a named snapshot",
-        "description": "List the share codes of a named snapshot, active and revoked (`boat snapshot shares <name>` in the CLI). The full codes are not returned. Needs `snapshot.read`.",
+        "summary": "List share codes of a saved snapshot",
+        "description": "List the share codes of a saved snapshot, active and revoked (`boat snapshot shares <name>` in the CLI). The full codes are not returned. Needs `snapshot.read`.",
         "operationId": "listSnapshotShares",
         "responses": {
           "200": {
@@ -12677,8 +13190,8 @@
         "tags": [
           "Boat"
         ],
-        "summary": "Share a named snapshot",
-        "description": "Make a secret code that lets any Boat account create a sandbox from this named snapshot (`boat snapshot share <name>` in the CLI). The response shows the code once; Boat stores only a hash. Re-saving the name changes what the code deploys. Removing the name removes its codes. Everything on the disk is shared, so do not keep secrets in files on it. Needs `snapshot.write`.",
+        "summary": "Share a saved snapshot",
+        "description": "Make a secret code that lets any Boat account create a sandbox from this saved snapshot (`boat snapshot share <name>` in the CLI). The response shows the code once; Boat stores only a hash. Re-saving the name changes what the code deploys. Removing the name removes its codes. Everything on the disk is shared, so do not keep secrets in files on it. Needs `snapshot.write`.",
         "operationId": "createSnapshotShare",
         "responses": {
           "201": {
@@ -12700,7 +13213,7 @@
         }
       }
     },
-    "/named-snapshots/{name}/shares/{shareId}": {
+    "/saved-snapshots/{name}/shares/{shareId}": {
       "parameters": [
         {
           "name": "name",
@@ -12862,7 +13375,7 @@
           "Boat"
         ],
         "summary": "Permanently delete all snapshots of a sandbox",
-        "description": "Accept irreversible deletion of every unpinned snapshot of this sandbox. The sandbox itself and its named snapshots stay. Snapshots disappear from lists, restores and forks immediately; their stored data is purged in the background. Set `X-Ascii-Confirm-Delete` to the sandbox id.",
+        "description": "Accept irreversible deletion of every unpinned snapshot of this sandbox. The sandbox itself and its saved snapshots stay. Snapshots disappear from lists, restores and forks immediately; their stored data is purged in the background. Set `X-Ascii-Confirm-Delete` to the sandbox id.",
         "operationId": "deleteSandboxSnapshots",
         "parameters": [
           {
