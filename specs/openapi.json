@@ -1539,6 +1539,108 @@
               }
             }
           },
+          "wallet": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The one wallet of this account or organization, in US dollars. It pays overage only: VM time past the plan, saved snapshots past the included count, paid starts and the AI proxy. It never pays the plan. Null on unlimited accounts.",
+            "properties": {
+              "balanceDollars": {
+                "type": "number",
+                "description": "Money in the wallet. Below zero while you owe during the grace period."
+              }
+            }
+          },
+          "planIncluded": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "What the plan includes this billing period. Null on unlimited accounts.",
+            "properties": {
+              "vmHours": {
+                "type": "number",
+                "description": "VM time included this period, in hours of a `default` machine."
+              },
+              "vmHoursRemaining": {
+                "type": "number",
+                "description": "Included VM time left this period, in hours of a `default` machine."
+              },
+              "periodEnd": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When the included amounts reset."
+              }
+            }
+          },
+          "overagePrices": {
+            "type": "object",
+            "description": "What the wallet pays past the plan.",
+            "properties": {
+              "vmHourDollars": {
+                "type": "number",
+                "description": "Dollars per hour of a `default` machine. `small` is 0.5x, `large` 2x, `xlarge` 5.556x."
+              },
+              "savedSnapshotDayDollars": {
+                "type": "number",
+                "description": "Dollars per day for each saved snapshot above the included count."
+              },
+              "startBrackets": {
+                "type": "array",
+                "description": "Price of a start above a start limit, by how far past the limit it falls, in each window (minute, hour, day). A start above limits in several windows pays the highest bracket among them.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "aboveMultiple": {
+                      "type": "number",
+                      "description": "The bracket starts above this multiple of the limit."
+                    },
+                    "upToMultiple": {
+                      "type": "number",
+                      "description": "The bracket ends at this multiple of the limit (included)."
+                    },
+                    "dollars": {
+                      "type": "number",
+                      "description": "Dollars per start in this bracket."
+                    }
+                  }
+                }
+              },
+              "startLimitMultiplier": {
+                "type": "number",
+                "description": "Paid starts stop at this multiple of each start limit (the last bracket's upToMultiple)."
+              }
+            }
+          },
+          "nextStartDollars": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "What the next start costs now. 0 inside every limit; null when it would be refused."
+          },
+          "startLimitsWithWallet": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Start ceilings with paid starts: each start limit times `overagePrices.startLimitMultiplier`. Starts above `startLimits` and up to these ceilings are paid from the wallet at the `overagePrices.startBrackets` prices. Null when paid starts are not available now (before the first payment, an empty wallet, or an unlimited account).",
+            "properties": {
+              "perMinute": {
+                "type": "integer"
+              },
+              "perHour": {
+                "type": "integer"
+              },
+              "perDay": {
+                "type": "integer"
+              }
+            }
+          },
           "starts": {
             "type": "object",
             "description": "Remaining machine starts in the rolling minute, hour and day windows. Null windows mean the account is unlimited.",
@@ -1562,22 +1664,21 @@
               "number",
               "null"
             ],
-            "description": "Remaining machine time in hours (`creditBalanceSeconds / 3600`). Null on unlimited accounts."
+            "deprecated": true,
+            "description": "Deprecated. Read `planIncluded.vmHoursRemaining` and `wallet.balanceDollars`."
           },
           "packBalanceHours": {
             "type": "number",
-            "description": "Remaining purchased credit packs in hours."
+            "deprecated": true,
+            "description": "Deprecated. Read `wallet.balanceDollars`."
           },
           "packBalanceDollars": {
             "type": "number",
-            "description": "Remaining purchased credit packs in dollars."
+            "deprecated": true,
+            "description": "Deprecated. Read `wallet.balanceDollars`."
           },
           "hasPaymentHistory": {
             "type": "boolean"
-          },
-          "package": {
-            "type": "object",
-            "additionalProperties": true
           },
           "subscriptionQuotaSeconds": {
             "type": "integer"
@@ -1586,10 +1687,14 @@
             "type": "integer"
           },
           "packBalanceSeconds": {
-            "type": "integer"
+            "type": "integer",
+            "deprecated": true,
+            "description": "Deprecated. Read `wallet.balanceDollars`."
           },
           "creditPurchasedSeconds": {
-            "type": "integer"
+            "type": "integer",
+            "deprecated": true,
+            "description": "Deprecated."
           },
           "creditUsedSeconds": {
             "type": "integer"
@@ -1689,14 +1794,21 @@
           },
           "last24hUsageSeconds": {
             "type": "integer",
-            "description": "Machine time used in the last 24 hours, in seconds. Useful to estimate how long the balance lasts."
+            "description": "Machine time used in the last 24 hours, in seconds. Useful to estimate how long the included time and the wallet last."
           },
           "trialComputeCapSeconds": {
             "type": [
               "integer",
               "null"
             ],
-            "description": "Lifetime Boat-time allowance for new sandboxes while the account has not paid, a plan trial included. Every charge on the wallet counts. Null once the account has paid."
+            "description": "Lifetime VM-time allowance for new sandboxes while the account has not paid, a plan trial included. Null once the account has paid."
+          },
+          "trialComputeUsedSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "VM time already used against trialComputeCapSeconds. Null once the account has paid."
           },
           "trialLine": {
             "type": [
@@ -1801,7 +1913,9 @@
             "format": "date-time"
           },
           "creditBalanceSeconds": {
-            "type": "integer"
+            "type": "integer",
+            "deprecated": true,
+            "description": "Deprecated. Read `planIncluded.vmHoursRemaining` and `wallet.balanceDollars`."
           },
           "teamId": {
             "type": "string",
@@ -6562,7 +6676,7 @@
       },
       "SavedSnapshotAllowance": {
         "type": "object",
-        "description": "What the request's wallet (your active organization, `?org=`, or personal) pays for saved snapshots. 10 are free per wallet; each one above costs $1.70 a month, charged daily from usage. An organization's count includes every member's names billed to it.",
+        "description": "What the request's wallet (your active organization, `?org=`, or personal) pays for saved snapshots. The plan includes some; each one above costs $0.056 a day from the wallet. An organization's count includes every member's names billed to it.",
         "properties": {
           "org": {
             "type": [
@@ -6601,11 +6715,15 @@
           },
           "extraDailyDollars": {
             "type": "number",
-            "description": "Boat time the extra ones take per day, in dollars (the daily charge)."
+            "description": "What the wallet pays per day for the extra ones, in dollars."
           },
           "pricePerExtraMonthlyDollars": {
             "type": "number",
-            "description": "Monthly price of one extra saved snapshot."
+            "description": "Price of one extra saved snapshot for 30 days (1.68)."
+          },
+          "pricePerExtraDailyDollars": {
+            "type": "number",
+            "description": "Daily price of one extra saved snapshot (0.056)."
           }
         }
       },
@@ -6783,7 +6901,7 @@
       },
       "NamedSnapshotAllowance": {
         "type": "object",
-        "description": "What the request's wallet (your active organization, `?org=`, or personal) pays for named snapshots. 10 are free per wallet; each one above costs $1.70 a month, charged daily from usage. An organization's count includes every member's names billed to it.",
+        "description": "What the request's wallet (your active organization, `?org=`, or personal) pays for named snapshots. The plan includes some; each one above costs $0.056 a day from the wallet. An organization's count includes every member's names billed to it.",
         "properties": {
           "org": {
             "type": [
@@ -6817,11 +6935,15 @@
           },
           "extraDailyDollars": {
             "type": "number",
-            "description": "Boat time the extra ones take per day, in dollars (the daily charge)."
+            "description": "What the wallet pays per day for the extra ones, in dollars."
           },
           "pricePerExtraMonthlyDollars": {
             "type": "number",
-            "description": "Monthly price of one extra named snapshot."
+            "description": "Price of one extra named snapshot for 30 days (1.68)."
+          },
+          "pricePerExtraDailyDollars": {
+            "type": "number",
+            "description": "Daily price of one extra named snapshot (0.056)."
           }
         }
       },
@@ -7637,7 +7759,7 @@
         }
       },
       "RateLimited": {
-        "description": "Machine start or concurrent-sandbox limit reached. Create, fork and resume each count as one machine start against your plan's start limits (see the Billing guide; `rate_limited`, naming the window you hit). A sandbox that would exceed your plan's concurrent-sandbox cap is refused with `limit_reached`, or `member_limit_reached` when an organization owner has capped you below the plan.",
+        "description": "Machine start or concurrent-sandbox limit reached. Create, fork and resume each count as one machine start against your plan's start limits (see the Billing guide; `rate_limited`, naming the window and the `limit` that applied). With money in the wallet after the first payment, starts above a limit are paid, up to `startLimitsWithWallet`; the body carries `startLimitsWithWallet`, null when paid starts are not available. A sandbox that would exceed your plan's concurrent-sandbox cap is refused with `limit_reached`, or `member_limit_reached` when an organization owner has capped you below the plan.",
         "content": {
           "application/json": {
             "schema": {
@@ -8028,7 +8150,7 @@
           "Boat"
         ],
         "summary": "Get Boat limits",
-        "description": "Check remaining machine starts, compute time, credits, access readiness, and concurrent-sandbox capacity for the wallet a create would bill: the `org` / `X-Boat-Org` you pass (id or name), else the account's active wallet, else personal. The response carries `teamId` when an organization wallet was read.",
+        "description": "Check remaining machine starts, included VM time, the wallet, overage prices, access readiness, and concurrent-sandbox capacity for the wallet a create would bill: the `org` / `X-Boat-Org` you pass (id or name), else the account's active wallet, else personal. The response carries `teamId` when an organization wallet was read.",
         "operationId": "limits",
         "parameters": [
           {
@@ -8098,11 +8220,41 @@
                         }
                       },
                       "billingStatus": "active",
-                      "creditBalanceSeconds": 7200,
-                      "creditBalanceHours": 2,
-                      "packBalanceSeconds": 500000,
-                      "packBalanceHours": 138.89,
-                      "packBalanceDollars": 5,
+                      "wallet": {
+                        "balanceDollars": 52.4
+                      },
+                      "planIncluded": {
+                        "vmHours": 555.56,
+                        "vmHoursRemaining": 312.7,
+                        "periodEnd": "2026-11-01T00:00:00.000Z"
+                      },
+                      "overagePrices": {
+                        "vmHourDollars": 0.036,
+                        "savedSnapshotDayDollars": 0.056,
+                        "startBrackets": [
+                          {
+                            "aboveMultiple": 1,
+                            "upToMultiple": 1.5,
+                            "dollars": 0.03
+                          },
+                          {
+                            "aboveMultiple": 1.5,
+                            "upToMultiple": 2,
+                            "dollars": 0.05
+                          },
+                          {
+                            "aboveMultiple": 2,
+                            "upToMultiple": 3,
+                            "dollars": 0.07
+                          }
+                        ],
+                        "startLimitMultiplier": 3
+                      },
+                      "startLimitsWithWallet": {
+                        "perMinute": 30,
+                        "perHour": 150,
+                        "perDay": 450
+                      },
                       "machineTypes": [
                         {
                           "type": "small",
@@ -9743,7 +9895,7 @@
           "Boat"
         ],
         "summary": "Turn the AI credentials proxy on or off",
-        "description": "With the proxy on, sandboxes get placeholder keys and base URLs that point at Boat. Boat swaps in the real key on each request. Real keys never enter the sandbox.\n\nRunning sandboxes switch at their next start. While on, the account pays $1 of Boat time for each UTC day, plus $1 per 1,000 proxied requests, charged to the wallet each sandbox bills. For an organization, only its owner can change the switch. Needs an API key with `account.admin`.\n",
+        "description": "With the proxy on, sandboxes get placeholder keys and base URLs that point at Boat. Boat swaps in the real key on each request. Real keys never enter the sandbox.\n\nRunning sandboxes switch at their next start. While on, the wallet of the account pays $1 for each UTC day, plus $1 per 1,000 proxied requests, charged to the wallet each sandbox bills. For an organization, only its owner can change the switch. Needs an API key with `account.admin`.\n",
         "operationId": "updateAiProxy",
         "parameters": [
           {
@@ -12870,7 +13022,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "402": {
-            "description": "`credit_required`: the wallet already keeps 10 or more named snapshots and has no credit left. Each named snapshot above the free 10 costs $1.70 a month, charged daily. Add credit or remove one.",
+            "description": "`credit_required`: the wallet already keeps its included named snapshots and is empty. Each named snapshot above the included count costs $0.056 a day from the wallet. Add money to the wallet or remove one.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13041,7 +13193,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "402": {
-            "description": "`credit_required`: the wallet already keeps 10 or more saved snapshots and has no credit left. Each saved snapshot above the plan's included count costs $1.70 a month, charged daily. Add credit or remove one.",
+            "description": "`credit_required`: the wallet already keeps its included saved snapshots and is empty. Each saved snapshot above the plan's included count costs $0.056 a day from the wallet. Add money to the wallet or remove one.",
             "content": {
               "application/json": {
                 "schema": {
