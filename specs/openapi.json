@@ -368,6 +368,21 @@
             "format": "date-time",
             "description": "When Boat deleted the snapshot data of this stopped sandbox, 14 days after it stopped. Resume and fork then fail with `409 snapshot_data_expired`. Null while the data is kept."
           },
+          "stoppedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the sandbox last stopped, by any cause: your stop, its auto-stop, a plan limit or Boat. Null while the sandbox is not stopped."
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The labels set at create or fork. Empty when none were set."
+          },
           "health": {
             "type": "string",
             "enum": [
@@ -1955,6 +1970,13 @@
             ],
             "default": 3600,
             "description": "Number of seconds before automatic archival. `null` disables auto-stop. The backend also accepts the string `infinite` for legacy compatibility; new clients should send null."
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value labels, for example your session id. Filter on them with `GET /sandboxes?label=key=value`. At most 20 labels. Keys match `[A-Za-z0-9][A-Za-z0-9._/-]{0,62}`; values are strings of at most 256 bytes."
           },
           "env": {
             "type": "object",
@@ -4055,6 +4077,384 @@
               },
               "size": {
                 "type": "integer"
+              }
+            }
+          }
+        ]
+      },
+      "FileEntry": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "isDir",
+          "isSymlink",
+          "size",
+          "mode",
+          "modifiedAt"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Absolute path on the sandbox."
+          },
+          "isDir": {
+            "type": "boolean"
+          },
+          "isSymlink": {
+            "type": "boolean"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Octal permission bits, for example \"0644\"."
+          },
+          "modifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FileListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "files",
+              "truncated"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "file.list"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "path": {
+                "type": "string"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FileEntry"
+                }
+              },
+              "truncated": {
+                "type": "boolean",
+                "description": "True when the directory holds more than 10,000 entries."
+              }
+            }
+          }
+        ]
+      },
+      "FileInfoResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "$ref": "#/components/schemas/FileEntry"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "file.info",
+                  "folder.created",
+                  "file.permissions_set"
+                ]
+              },
+              "success": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      },
+      "FileSearchResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "files",
+              "truncated"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "file.search"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Absolute paths, at most 10,000."
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "errors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Present only when part of the tree could not be searched (for example a folder you cannot read). The results are then incomplete. A search that fails completely is an error response."
+              }
+            }
+          }
+        ]
+      },
+      "FileFindResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "matches",
+              "truncated"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "file.find"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "matches": {
+                "type": "array",
+                "description": "At most 1,000 matches. Each line is cut at 500 characters.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "file",
+                    "line",
+                    "content"
+                  ],
+                  "properties": {
+                    "file": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "content": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "errors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Present only when part of the tree could not be searched. The matches are then incomplete. An invalid regular expression is an error response."
+              }
+            }
+          }
+        ]
+      },
+      "FileFolderRequest": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Missing parent directories are created."
+          },
+          "mode": {
+            "type": "string",
+            "description": "Octal permission bits, for example \"755\"."
+          }
+        }
+      },
+      "FileMoveRequest": {
+        "type": "object",
+        "required": [
+          "source",
+          "destination"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string",
+            "description": "The new full path. Missing parent directories are created."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "default": false,
+            "description": "Replace an existing destination. Without it, an existing destination is an error."
+          }
+        }
+      },
+      "FileMoveResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "path",
+              "destination"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "file.moved"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "path": {
+                "type": "string"
+              },
+              "destination": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "FilePermissionsRequest": {
+        "type": "object",
+        "required": [
+          "path",
+          "mode"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Octal permission bits, for example \"755\"."
+          }
+        }
+      },
+      "FileReplaceRequest": {
+        "type": "object",
+        "required": [
+          "paths",
+          "pattern",
+          "newValue"
+        ],
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "description": "Files up to 5 MiB each."
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Plain text. Every occurrence is replaced, byte for byte; the rest of the file is not changed."
+          },
+          "newValue": {
+            "type": "string",
+            "description": "Required. Use \"\" to delete the matches."
+          }
+        }
+      },
+      "FileReplaceResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "results"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "file.replaced"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "results": {
+                "type": "array",
+                "description": "One result per file. A file that fails does not stop the others.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "file",
+                    "success"
+                  ],
+                  "properties": {
+                    "file": {
+                      "type": "string"
+                    },
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "replacements": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "FileDeleteResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "file.deleted"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "path": {
+                "type": "string"
               }
             }
           }
@@ -10824,6 +11224,44 @@
             "description": "Comma-separated sandbox state filter, for example `ready,idle,running`."
           },
           {
+            "name": "namePrefix",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keep sandboxes whose name starts with this text, for example `myapp-`. The match is literal."
+          },
+          {
+            "name": "stoppedBefore",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Keep stopped sandboxes that stopped before this ISO 8601 time. Every stop counts, auto-stops too."
+          },
+          {
+            "name": "dataExpired",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "`true` keeps sandboxes whose data retention deleted (`dataExpiredAt` is set). `false` keeps the others."
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "`key=value`. Repeat it to require several labels, for example `label=session%3Dabc&label=env%3Dprod`."
+          },
+          {
             "name": "include",
             "in": "query",
             "schema": {
@@ -11423,6 +11861,13 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Labels of the fork. The fork never takes the source's labels. Same rules as `CreateSandboxRequest.labels`."
+                  },
                   "failFast": {
                     "type": "boolean",
                     "default": false,
@@ -11984,6 +12429,386 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FileWriteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Delete a file or directory in a sandbox",
+        "description": "A directory needs `recursive=true`. A symlink is deleted itself, never its target. /home/user and /tmp themselves cannot be deleted. Needs `file.write`.",
+        "operationId": "deleteFile",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recursive",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileDeleteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/list": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "List a directory in a sandbox",
+        "description": "One level, sorted by name. A symlink is listed as a symlink, not followed. Defaults to /home/user. Needs `file.read`.",
+        "operationId": "listFiles",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "/home/user"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Directory entries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/info": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get file or directory details in a sandbox",
+        "description": "Size, permission bits, type and modification time. Needs `file.read`.",
+        "operationId": "getFileInfo",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileInfoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/search": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Search files by name in a sandbox",
+        "description": "Every file and directory under `path` whose name matches the glob `pattern` (for example `*.py`). Symlinks are not followed. Needs `file.read`.",
+        "operationId": "searchFiles",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "/home/user"
+            }
+          },
+          {
+            "name": "pattern",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching paths.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/find": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Find text in sandbox files",
+        "description": "Every line under `path` that contains `pattern`. `pattern` is plain text; with `regex=true` it is an extended regular expression. Binary files are skipped and symlinks are not followed. Needs `file.read`.",
+        "operationId": "findInFiles",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "/home/user"
+            }
+          },
+          {
+            "name": "pattern",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "regex",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching lines.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileFindResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/folder": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Create a directory in a sandbox",
+        "description": "Missing parent directories are created. An existing directory is not an error. Needs `file.write`.",
+        "operationId": "createFolder",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileFolderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Directory created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileInfoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/move": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Move or rename a file or directory in a sandbox",
+        "description": "Works across /home/user and /tmp. A symlink is moved itself, never its target. Needs `file.write`.",
+        "operationId": "moveFile",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileMoveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Moved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileMoveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/permissions": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Set file permissions in a sandbox",
+        "description": "Sets the permission bits. Files belong to the sandbox user; the owner and group do not change. Needs `file.write`.",
+        "operationId": "setFilePermissions",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FilePermissionsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Permissions set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileInfoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/files/replace": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Replace text in sandbox files",
+        "description": "Replaces every occurrence of `pattern` with `newValue` in each file. Needs `file.write`.",
+        "operationId": "replaceInFiles",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileReplaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Per-file results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileReplaceResponse"
                 }
               }
             }
