@@ -6083,6 +6083,553 @@
           }
         }
       },
+      "CiJobState": {
+        "type": "string",
+        "description": "queued and running are active. failed = boat could not start a sandbox; refused = boat never runs it (unknown label, public repository).",
+        "enum": [
+          "queued",
+          "running",
+          "success",
+          "failure",
+          "cancelled",
+          "skipped",
+          "failed",
+          "refused"
+        ]
+      },
+      "CiJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "repo",
+          "jobName",
+          "label",
+          "machineClass",
+          "state",
+          "queuedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "GitHub workflow job id.",
+            "examples": [
+              "122395651084"
+            ]
+          },
+          "repo": {
+            "type": "string",
+            "examples": [
+              "acme/api"
+            ]
+          },
+          "runId": {
+            "type": "string"
+          },
+          "jobName": {
+            "type": "string",
+            "examples": [
+              "test"
+            ]
+          },
+          "workflowName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "ci"
+            ]
+          },
+          "headBranch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "examples": [
+              "main"
+            ]
+          },
+          "headSha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "htmlUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The job on GitHub."
+          },
+          "label": {
+            "type": "string",
+            "description": "The runs-on label that matched.",
+            "examples": [
+              "boat-large/debug"
+            ]
+          },
+          "machineClass": {
+            "type": "string",
+            "enum": [
+              "small",
+              "default",
+              "large",
+              "xlarge"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/CiJobState"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why boat refused or could not start the job."
+          },
+          "sandboxId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The sandbox this job's runner started."
+          },
+          "sandboxState": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "live",
+              "busy",
+              "kept",
+              "deleted",
+              null
+            ],
+            "description": "kept = a failed /debug job's sandbox, kept 30 minutes."
+          },
+          "queuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "runStartedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "waitSeconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Queued on GitHub until a runner took it."
+          },
+          "runSeconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "costDollars": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Sandbox time of the job at the size's rate."
+          }
+        }
+      },
+      "CiRepository": {
+        "type": "object",
+        "required": [
+          "fullName",
+          "private",
+          "htmlUrl",
+          "status",
+          "jobs7d"
+        ],
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "examples": [
+              "acme/api"
+            ]
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "htmlUrl": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "no-jobs",
+              "failing",
+              "public-blocked"
+            ],
+            "description": "public-blocked = public repository, jobs never run."
+          },
+          "jobs7d": {
+            "type": "integer",
+            "description": "Jobs in the last 7 days."
+          },
+          "lastState": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CiJobState"
+              }
+            ]
+          },
+          "lastAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CiInstallation": {
+        "type": "object",
+        "required": [
+          "id",
+          "accountLogin",
+          "accountType",
+          "manageUrl",
+          "repositories"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "GitHub App installation id."
+          },
+          "accountLogin": {
+            "type": "string",
+            "examples": [
+              "acme"
+            ]
+          },
+          "accountType": {
+            "type": "string",
+            "enum": [
+              "Organization",
+              "User"
+            ]
+          },
+          "teamId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The organization that pays; null = the personal wallet."
+          },
+          "allowPublicRepos": {
+            "type": "boolean"
+          },
+          "manageUrl": {
+            "type": "string",
+            "description": "Where to choose the repositories on GitHub."
+          },
+          "repositories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CiRepository"
+            }
+          }
+        }
+      },
+      "CiOverviewResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "setup",
+              "installations",
+              "counts",
+              "stats",
+              "jobs"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "ci.overview"
+              },
+              "setup": {
+                "type": "object",
+                "description": "The four setup steps, the next one to do, and jobs boat did not run (grouped by repository and reason).",
+                "properties": {
+                  "complete": {
+                    "type": "boolean"
+                  },
+                  "next": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "install",
+                      "repositories",
+                      "workflow",
+                      "first-pass",
+                      null
+                    ]
+                  },
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "done": {
+                          "type": "boolean"
+                        },
+                        "detail": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "problems": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "jobId": {
+                          "type": "string"
+                        },
+                        "repo": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "count": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "installations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CiInstallation"
+                }
+              },
+              "filter": {
+                "type": "object",
+                "properties": {
+                  "account": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "repo": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "all",
+                      "active",
+                      "failed"
+                    ]
+                  }
+                }
+              },
+              "counts": {
+                "type": "object",
+                "description": "Jobs in the last 7 days in the account and repo scope, per state tab.",
+                "properties": {
+                  "all": {
+                    "type": "integer"
+                  },
+                  "active": {
+                    "type": "integer"
+                  },
+                  "failed": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "stats": {
+                "type": "object",
+                "properties": {
+                  "jobs": {
+                    "type": "integer"
+                  },
+                  "running": {
+                    "type": "integer"
+                  },
+                  "successRate": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "medianWaitSeconds": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "medianRunSeconds": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "costDollars": {
+                    "type": "number"
+                  },
+                  "perDay": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "day": {
+                          "type": "string",
+                          "format": "date"
+                        },
+                        "success": {
+                          "type": "integer"
+                        },
+                        "failure": {
+                          "type": "integer"
+                        },
+                        "other": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "jobs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CiJob"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CiJobResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "job"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "ci.job"
+              },
+              "job": {
+                "$ref": "#/components/schemas/CiJob"
+              }
+            }
+          }
+        ]
+      },
+      "CiJobLogResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "log"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "ci.job.logs"
+              },
+              "log": {
+                "type": "string",
+                "description": "The GitHub log, one timestamped line each, last 1 MB. Empty before the job starts."
+              }
+            }
+          }
+        ]
+      },
+      "CiConnectRequest": {
+        "type": "object",
+        "properties": {
+          "org": {
+            "type": "string",
+            "description": "The organization whose wallet pays for the jobs. Omit for the wallet in scope."
+          }
+        }
+      },
+      "CiConnectResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "installUrl"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "ci.connect"
+              },
+              "installUrl": {
+                "type": "string",
+                "description": "Open it in a browser to install the boat CI GitHub App. Valid 30 minutes."
+              }
+            }
+          }
+        ]
+      },
       "TelemetryResponse": {
         "allOf": [
           {
@@ -9621,6 +10168,188 @@
         }
       }
     },
+    "/ci": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get CI overview",
+        "description": "GitHub Actions on boat (`runs-on: boat`): the setup steps and the next one, jobs boat did not run and why, the linked GitHub accounts with every repository they can see, 7-day stats, and the jobs. The same data as the dashboard's CI tab and `boat ci`.\n\n`account` and `repo` narrow everything (problems, counts, stats, jobs); `state` narrows only the job list. Covers what you linked and what is linked to the organization in scope. Needs an API key with `account.read`.\n",
+        "operationId": "getCiOverview",
+        "parameters": [
+          {
+            "name": "account",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only this GitHub account (organization or user login)."
+          },
+          {
+            "name": "repo",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only this repository, as owner/name."
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "active",
+                "failed"
+              ],
+              "default": "all"
+            },
+            "description": "active = queued or running. failed = failed, never started, or refused."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The overview.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiOverviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/ci/connect": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Connect GitHub for CI",
+        "description": "Returns the GitHub page that installs the boat CI app on an organization or account. When the person who opens it installs the app, its `runs-on boat` jobs start running on sandboxes billed to `org` (or the wallet in scope). Boat links the installation only after GitHub confirms that this person can manage it. Needs an API key with `account.admin`.",
+        "operationId": "connectCiGithub",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CiConnectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The install link.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiConnectResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/ci/jobs/{jobId}": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get CI job",
+        "description": "One job with its wait, run time, cost, sandbox and error. Needs an API key with `account.read`.",
+        "operationId": "getCiJob",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "GitHub workflow job id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The job.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiJobResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/ci/jobs/{jobId}/logs": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get CI job log",
+        "description": "The job's log from GitHub, up to the last 1 MB. Poll it while the job runs. Needs an API key with `account.read`.",
+        "operationId": "getCiJobLog",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "GitHub workflow job id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The log.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiJobLogResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/credential-profiles": {
       "get": {
         "tags": [
@@ -12077,7 +12806,7 @@
           "Boat"
         ],
         "summary": "List boat events",
-        "description": "Return Sandbox work, lifecycle, and progress events so product UIs can show what the sandbox is doing. A Sandbox runs many conversations in parallel; this streams **all** of them by default and every event carries a `conversationId`. Filter to one or more with `conversation`. Event payloads are extensible. Clients can long-poll this endpoint with `sort=asc` and a cursor to stream responses. Response events expose agent text, streaming partials via `data.is_streaming`, and tool calls/results via `data.tools`.",
+        "description": "Return Sandbox work, lifecycle, and progress events so product UIs can show what the sandbox is doing. A Sandbox runs many conversations in parallel; this streams **all** of them by default and every event carries a `conversationId`. Filter to one or more with `conversation`. Event payloads are extensible. Clients can long-poll this endpoint with `sort=asc` and a cursor to stream responses. Response events expose agent text, streaming partials via `data.is_streaming`, and tool calls/results via `data.tools`. When you poll, send the last `ETag` back in `If-None-Match`. An unchanged page answers `304 Not Modified` with no body.",
         "operationId": "events",
         "parameters": [
           {
@@ -12107,11 +12836,27 @@
               "type": "string"
             },
             "description": "Only return events for this conversation id. Repeat the parameter (or comma-separate) for several. Omit to stream every conversation on the sandbox. See [Integrated agents](/integrated-agents)."
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "The `ETag` of the last page you read. If the page is unchanged, the answer is `304` with no body."
           }
         ],
         "responses": {
           "200": {
             "description": "The agent's work on the sandbox (prompts, responses), not sandbox lifecycle. A sandbox that was never prompted returns an empty list even though it started, stopped and resumed.",
+            "headers": {
+              "ETag": {
+                "description": "Tag of this page. Send it back in `If-None-Match` on the next poll.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -12183,6 +12928,17 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Nothing changed since the `ETag` you sent in `If-None-Match`. No body.",
+            "headers": {
+              "ETag": {
+                "description": "Tag of the unchanged page.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
