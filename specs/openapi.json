@@ -843,6 +843,10 @@
             ],
             "format": "date-time",
             "description": "When the stop completed or was superseded."
+          },
+          "forced": {
+            "type": "boolean",
+            "description": "True when a force (`--force`) ended this stop. The sandbox kept its last completed snapshot, and changes after it are discarded."
           }
         }
       },
@@ -6345,7 +6349,15 @@
             "description": "The organization that pays; null = the personal wallet."
           },
           "allowPublicRepos": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Jobs from this account's public repositories run on boat."
+          },
+          "publicRepoUsers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "With allowPublicRepos: only runs these GitHub users authored and started run. Empty = anyone."
           },
           "manageUrl": {
             "type": "string",
@@ -6625,6 +6637,85 @@
               "installUrl": {
                 "type": "string",
                 "description": "Open it in a browser to install the boat CI GitHub App. Valid 30 minutes."
+              }
+            }
+          }
+        ]
+      },
+      "CiPublicReposRequest": {
+        "type": "object",
+        "required": [
+          "account"
+        ],
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "The linked GitHub account (login) or installation ID."
+          },
+          "allow": {
+            "type": "boolean",
+            "description": "true = jobs from public repositories run. Omit to keep the current value."
+          },
+          "users": {
+            "description": "GitHub users allowed: \"alice, @bob\" or a list. Commas, spaces, @ and profile URLs are accepted. \"\" = anyone. Omit to keep the current list.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Only check the users on GitHub; change nothing."
+          },
+          "org": {
+            "type": "string",
+            "description": "The organization in scope."
+          }
+        }
+      },
+      "CiPublicReposResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "allowPublicRepos",
+              "publicRepoUsers"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "ci.public"
+              },
+              "allowPublicRepos": {
+                "type": "boolean"
+              },
+              "publicRepoUsers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "login": {
+                      "type": "string",
+                      "description": "The login as GitHub spells it."
+                    },
+                    "avatarUrl": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
               }
             }
           }
@@ -10268,6 +10359,50 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/ci/public": {
+      "post": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Set CI public repositories",
+        "description": "Turns jobs from a linked account's public repositories on or off, and sets the GitHub users whose runs may use boat there. A run is allowed only when both its author and the user who started it (a re-run) are on the list. Each user is checked on GitHub. Only the person who linked the account, or an owner or admin of its org, can change it. Needs an API key with `account.admin`.",
+        "operationId": "setCiPublicRepos",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CiPublicReposRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The setting, as saved (or as it would be, with dryRun).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiPublicReposResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A user is not a GitHub username or GitHub does not know it."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "The caller did not link this account and is not an owner or admin of its org."
+          },
+          "404": {
+            "description": "No linked GitHub account matches."
           }
         }
       }
