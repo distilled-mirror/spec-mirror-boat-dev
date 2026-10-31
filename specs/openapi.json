@@ -1563,7 +1563,7 @@
               "object",
               "null"
             ],
-            "description": "The one wallet of this account or organization, in US dollars. It pays overage only: VM time past the plan, saved snapshots past the included count, paid starts and the AI proxy. It never pays the plan. Null on unlimited accounts.",
+            "description": "The one wallet of this account or organization, in US dollars. It pays overage only: VM time past the plan, saved snapshots past the included count, extra starts and the AI proxy. It never pays the plan. Null on unlimited accounts.",
             "properties": {
               "balanceDollars": {
                 "type": "number",
@@ -1631,7 +1631,11 @@
               },
               "startLimitMultiplier": {
                 "type": "number",
-                "description": "Paid starts stop at this multiple of each start limit (the last bracket's upToMultiple)."
+                "description": "Extra starts stop at this multiple of the hour and day limits (the last bracket's upToMultiple)."
+              },
+              "startMinuteLimitMultiplier": {
+                "type": "number",
+                "description": "Extra starts stop at this multiple of the minute limit."
               }
             }
           },
@@ -1647,7 +1651,7 @@
               "object",
               "null"
             ],
-            "description": "Start ceilings with paid starts: each start limit times `overagePrices.startLimitMultiplier`. Starts above `startLimits` and up to these ceilings are paid from the wallet at the `overagePrices.startBrackets` prices. Null when paid starts are not available now (before the first payment, an empty wallet, or an unlimited account).",
+            "description": "Start ceilings with extra starts: the hour and day limits times `overagePrices.startLimitMultiplier`, and the minute limit times `overagePrices.startMinuteLimitMultiplier`. Starts above `startLimits` and up to these ceilings are paid from the wallet at the `overagePrices.startBrackets` prices. Null when extra starts are not available now (before the first payment, an empty wallet, or an unlimited account).",
             "properties": {
               "perMinute": {
                 "type": "integer"
@@ -8797,7 +8801,7 @@
         }
       },
       "RateLimited": {
-        "description": "Machine start or concurrent-sandbox limit reached. Create, fork and resume each count as one machine start against your plan's start limits (see the Billing guide; `rate_limited`, naming the window and the `limit` that applied). With money in the wallet after the first payment, starts above a limit are paid, up to `startLimitsWithWallet`; the body carries `startLimitsWithWallet`, null when paid starts are not available. A sandbox that would exceed your plan's concurrent-sandbox cap is refused with `limit_reached`, or `member_limit_reached` when an organization owner has capped you below the plan.",
+        "description": "Machine start or concurrent-sandbox limit reached. Create, fork and resume each count as one machine start against your plan's start limits (see the Billing guide; `rate_limited`, naming the window and the `limit` that applied). With money in the wallet after the first payment, starts above a limit are paid, up to `startLimitsWithWallet`; the body carries `startLimitsWithWallet`, null when extra starts are not available. A sandbox that would exceed your plan's concurrent-sandbox cap is refused with `limit_reached`, or `member_limit_reached` when an organization owner has capped you below the plan.",
         "content": {
           "application/json": {
             "schema": {
@@ -9282,11 +9286,12 @@
                           },
                           {
                             "aboveMultiple": 2,
-                            "upToMultiple": 3,
+                            "upToMultiple": 6,
                             "dollars": 0.07
                           }
                         ],
-                        "startLimitMultiplier": 3
+                        "startLimitMultiplier": 6,
+                        "startMinuteLimitMultiplier": 3
                       },
                       "startLimitsWithWallet": {
                         "perMinute": 30,
