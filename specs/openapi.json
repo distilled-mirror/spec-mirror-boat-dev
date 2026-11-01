@@ -15609,7 +15609,7 @@
           "Boat"
         ],
         "summary": "Get snapshot download",
-        "description": "Return time-limited signed URLs for every chunk needed to reconstruct the sandbox filesystem at this snapshot (the full chain, base through this generation), plus the inventory. Download the chunks and reassemble them as described by `reconstruct`. The `boat snapshot pull` CLI command does this for you.\n",
+        "description": "Return time-limited signed URLs for every chunk needed to reconstruct the sandbox filesystem at this snapshot (the full chain, base through this generation), plus the inventory. Download the chunks and reassemble them as described by `reconstruct`. The `boat snapshot pull` CLI command does this for you. A snapshot whose older layers were cleaned up answers 409 `snapshot_compacted`: read its files from `GET /snapshots/{snapshotId}/files` instead, which `boat snapshot pull` does for you too.\n",
         "operationId": "getSnapshotDownload",
         "parameters": [
           {
