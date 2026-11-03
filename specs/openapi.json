@@ -8921,7 +8921,7 @@
           "Boat"
         ],
         "summary": "Update organization settings",
-        "description": "Owners and admins set whether new sandboxes of the organization start private (only their creator can use them) or shared (every member can use those that hold none of their creator's logins). The default is shared. Existing sandboxes keep their setting; their creators change it with `POST /sandboxes/{sandboxId}/share` and `POST /sandboxes/{sandboxId}/unshare`. A fork of a private sandbox is private.",
+        "description": "The owner renames the organization with `name`. Requests that name the organization by its old name fail after the rename; its id does not change. The billing name on new invoices follows when it is still the organization name. If Stripe does not answer, the request fails with 502 and nothing changes. Owners and admins set whether new sandboxes of the organization start private (only their creator can use them) or shared (every member can use those that hold none of their creator's logins). The default is shared. Existing sandboxes keep their setting; their creators change it with `POST /sandboxes/{sandboxId}/share` and `POST /sandboxes/{sandboxId}/unshare`. A fork of a private sandbox is private.",
         "operationId": "updateOrganization",
         "parameters": [
           {
@@ -8940,10 +8940,13 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "newSandboxesPrivate"
-                ],
+                "minProperties": 1,
                 "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "New name. Owner only. Leading and trailing spaces are removed."
+                  },
                   "newSandboxesPrivate": {
                     "type": "boolean",
                     "description": "True = new sandboxes start private. False = they start shared."
@@ -8951,6 +8954,11 @@
                 }
               },
               "examples": {
+                "rename": {
+                  "value": {
+                    "name": "Acme Robotics"
+                  }
+                },
                 "private": {
                   "value": {
                     "newSandboxesPrivate": true
@@ -8962,7 +8970,7 @@
         },
         "responses": {
           "200": {
-            "description": "The setting is saved.",
+            "description": "The settings are saved. The response holds each field that the request changed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8980,6 +8988,9 @@
                     "success": {
                       "type": "boolean"
                     },
+                    "name": {
+                      "type": "string"
+                    },
                     "newSandboxesPrivate": {
                       "type": "boolean"
                     }
@@ -8996,6 +9007,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "502": {
+            "description": "Stripe did not update the billing name. The organization keeps its name. Try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
           }
         }
       }
