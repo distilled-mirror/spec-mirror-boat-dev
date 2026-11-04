@@ -366,7 +366,7 @@
               "null"
             ],
             "format": "date-time",
-            "description": "When Boat deleted the snapshot data of this stopped sandbox, 14 days after it stopped. Resume and fork then fail with `409 snapshot_data_expired`. Null while the data is kept."
+            "description": "When boat deleted the snapshot data after this sandbox was stopped for at least 14 days. Resume and fork then fail with `409 snapshot_data_expired`. Null while the data is kept."
           },
           "stoppedAt": {
             "type": [
@@ -491,16 +491,12 @@
             ]
           },
           "machineProvider": {
-            "type": [
-              "string",
-              "null"
-            ],
+            "type": "string",
             "enum": [
-              "hetzner",
-              "baremetal",
-              null
+              "baremetal"
             ],
-            "description": "Machine provider of the machine the sandbox is on, or null when it has no machine."
+            "deprecated": true,
+            "description": "Always `baremetal`. Every sandbox runs on bare metal."
           },
           "url": {
             "type": [
