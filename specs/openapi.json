@@ -6616,6 +6616,10 @@
           "org": {
             "type": "string",
             "description": "The organization whose wallet pays for the jobs. Omit for the wallet in scope."
+          },
+          "account": {
+            "type": "string",
+            "description": "GitHub organization or user login. Set this to authorize and link an existing installation. Omit it to install the app."
           }
         }
       },
@@ -6636,7 +6640,7 @@
               },
               "installUrl": {
                 "type": "string",
-                "description": "Open it in a browser to install the boat CI GitHub App. Valid 30 minutes."
+                "description": "Open it in a browser to install the app or authorize an existing installation. Valid 30 minutes."
               }
             }
           }
@@ -10357,7 +10361,7 @@
           "Boat"
         ],
         "summary": "Connect GitHub for CI",
-        "description": "Returns the GitHub page that installs the boat CI app on an organization or account. When the person who opens it installs the app, its `runs-on boat` jobs start running on sandboxes billed to `org` (or the wallet in scope). Boat links the installation only after GitHub confirms that this person can manage it. Needs an API key with `account.admin`.",
+        "description": "Returns a GitHub URL to install the boat CI app, or to authorize an existing installation when `account` is set. An owner of the GitHub organization must complete authorization and confirm the boat account. Jobs bill `org` or the wallet in scope. Needs an API key with `account.admin`.",
         "operationId": "connectCiGithub",
         "requestBody": {
           "content": {
@@ -10370,7 +10374,7 @@
         },
         "responses": {
           "200": {
-            "description": "The install link.",
+            "description": "The install or authorization link.",
             "content": {
               "application/json": {
                 "schema": {
