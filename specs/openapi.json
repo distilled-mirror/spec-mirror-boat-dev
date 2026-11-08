@@ -3307,7 +3307,7 @@
               },
               "deletedCost": {
                 "type": "object",
-                "description": "Only with `include=cost`, and not for an API key limited to some sandboxes. Machine time this calendar month (UTC) of deleted sandboxes this list would otherwise show. They are not in the list, but their time was billed. Add it to the sandboxes' `cost` to get the full total.",
+                "description": "Only with `include=deletedCost`, and not for an API key limited to some sandboxes. Machine time this calendar month (UTC) of deleted sandboxes this list would otherwise show. They are not in the list, but their time was billed. Add it to the sandboxes' `cost` to get the full total.",
                 "required": [
                   "since",
                   "seconds",
@@ -12156,11 +12156,12 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": [
-                "cost"
+              "examples": [
+                "cost",
+                "cost,deletedCost"
               ]
             },
-            "description": "`cost` adds each sandbox's `cost` this calendar month (UTC), at list price."
+            "description": "Comma-separated. `cost` adds each sandbox's `cost` this calendar month (UTC), at list price. `deletedCost` adds wallet-wide machine time of deleted sandboxes this list would show (not for API keys limited to some sandboxes)."
           }
         ],
         "responses": {
