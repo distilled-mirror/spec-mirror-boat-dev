@@ -3487,6 +3487,28 @@
                   }
                 ]
               },
+              "forced": {
+                "type": "boolean",
+                "description": "On stop, true when this stop discards work written after the last snapshot."
+              },
+              "operation": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StopOperation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "On stop, the stop operation (also on a sandbox that is already stopping or stopped)."
+              },
+              "statusUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "On stop, the path that reads this stop operation, for example `/api/v1/sandboxes/bx_23456789/stops/stop_0123456789abcdef`."
+              },
               "giftLimitNotice": {
                 "type": "string",
                 "description": "Present on resume or fork when a fair-use cap on a gifted account shortened the requested auto-stop time."
@@ -8661,6 +8683,33 @@
         }
       }
     },
+    "headers": {
+      "RetryAfter": {
+        "description": "Seconds to wait before you retry. Every `429` sends it: the time the limit frees, or the length of its window when that time is not known. A concurrent-sandbox cap sends `30` (a sandbox can stop at any moment). The trial compute cap sends `3600`: it frees only with a plan.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "RateLimitPolicy": {
+        "description": "IETF `RateLimit-Policy` (draft-ietf-httpapi-ratelimit-headers). `\"ip\"` is the per-IP request limit. Create, resume and fork also list your machine start limits: `\"starts-minute\";q=<n>;w=60, \"starts-hour\";q=<n>;w=3600, \"starts-day\";q=<n>;w=86400`. Accounts without start limits get no start policies. Starts paid from the wallet past these limits do not change them.",
+        "schema": {
+          "type": "string",
+          "examples": [
+            "\"ip\";q=600;w=60, \"starts-minute\";q=12;w=60, \"starts-hour\";q=60;w=3600, \"starts-day\";q=200;w=86400"
+          ]
+        }
+      },
+      "RateLimit": {
+        "description": "IETF `RateLimit`: what is left of each policy. On create, resume and fork it also names the start window with the fewest starts left, after this request: `r` starts left, `t` seconds until the window is full again (the windows slide, so `t` is the window length unless the next free start is known).",
+        "schema": {
+          "type": "string",
+          "examples": [
+            "\"ip\";r=599;t=60, \"starts-hour\";r=5;t=3600"
+          ]
+        }
+      }
+    },
     "responses": {
       "BadRequest": {
         "description": "Invalid request body or parameters.",
@@ -8801,7 +8850,43 @@
         }
       },
       "RateLimited": {
-        "description": "Machine start or concurrent-sandbox limit reached. Create, fork and resume each count as one machine start against your plan's start limits (see the Billing guide; `rate_limited`, naming the window and the `limit` that applied). With money in the wallet after the first payment, starts above a limit are paid, up to `startLimitsWithWallet`; the body carries `startLimitsWithWallet`, null when extra starts are not available. A sandbox that would exceed your plan's concurrent-sandbox cap is refused with `limit_reached`, or `member_limit_reached` when an organization owner has capped you below the plan.",
+        "description": "Machine start or concurrent-sandbox limit reached. Create, fork and resume each count as one machine start against your plan's start limits (see the Billing guide; `rate_limited`, naming the window and the `limit` that applied). With money in the wallet after the first payment, starts above a limit are paid, up to `startLimitsWithWallet`; the body carries `startLimitsWithWallet`, null when extra starts are not available. A sandbox that would exceed your plan's concurrent-sandbox cap is refused with `limit_reached`, or `member_limit_reached` when an organization owner has capped you below the plan. Every `429` carries `Retry-After`.",
+        "headers": {
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          },
+          "RateLimit-Policy": {
+            "$ref": "#/components/headers/RateLimitPolicy"
+          },
+          "RateLimit": {
+            "$ref": "#/components/headers/RateLimit"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "FileTooLarge": {
+        "description": "`file_too_large`: the file is over the inline read or write limit. `error.details.maxBytes` is the limit and `error.details.sizeBytes` the file size. Use `POST /sandboxes/{sandboxId}/files/download-url` or `.../upload-url` instead.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorEnvelope"
+            }
+          }
+        }
+      },
+      "SandboxStopping": {
+        "description": "`sandbox_stopping`: a stop holds the sandbox's machine and this resume cannot take it over (a size, environment or host change, or a stop that cannot hand the machine back). Retry after `Retry-After` seconds. `error.details.operation` is the stop and `error.details.statusUrl` the path to poll it. Other `409` codes can also apply.",
+        "headers": {
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
@@ -12087,7 +12172,7 @@
           "Boat"
         ],
         "summary": "List sandboxes",
-        "description": "Your sandboxes. In an organization's scope (the active wallet, `org`, or `X-Boat-Org`) the list also holds every sandbox that organization pays for, whoever created it; `createdBy` and `access` say whose it is and what you may do with it.",
+        "description": "Your sandboxes. In an organization's scope (the active wallet, `org`, or `X-Boat-Org`) the list also holds every sandbox that organization pays for, whoever created it; `createdBy` and `access` say whose it is and what you may do with it. An unknown query parameter is refused with `400 invalid_query`, which names it.",
         "operationId": "sandboxes",
         "parameters": [
           {
@@ -12112,6 +12197,14 @@
               "type": "string"
             },
             "description": "Comma-separated sandbox state filter, for example `ready,idle,running`."
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keep the sandboxes with exactly this name."
           },
           {
             "name": "namePrefix",
@@ -12199,6 +12292,9 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           }
@@ -12235,6 +12331,14 @@
         "responses": {
           "202": {
             "description": "Boat accepted for provisioning.",
+            "headers": {
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -12424,7 +12528,7 @@
           "Boat"
         ],
         "summary": "Stop and archive sandbox",
-        "description": "Stop active work and archive/snapshot the sandbox for later resume or fork.\n\nA stop always saves the sandbox's disk first. If that save is failing, the stop is\nrefused and the sandbox keeps running so your work is not discarded, we retry\nautomatically and email you. You are not billed for time spent in that state.\n\nThe stop is an operation: the response and the sandbox carry it as `stop`, with an\n`id` and a `status`. Poll `GET /sandboxes/{sandboxId}` until `stop.status` is\n`completed`. A failed attempt shows `failing` with its `error` and is retried\nuntil the sandbox archives; commands and prompts you send meanwhile do not cancel\nit. Only a resume ends it early (`superseded`). Calling stop again while one is\npending returns the same `id`.\n\nSet `force: true` to stop anyway, keeping the last successful snapshot and\nlosing everything written since then. This is irreversible; only reach for it\nafter a stop has already failed. A force on a stop that is already pending\nescalates that stop.\n",
+        "description": "Stop active work and archive/snapshot the sandbox for later resume or fork.\n\nA stop always saves the sandbox's disk first. If that save is failing, the stop is\nrefused and the sandbox keeps running so your work is not discarded, we retry\nautomatically and email you. You are not billed for time spent in that state.\n\nThe stop is an operation: the response and the sandbox carry it as `stop`, with an\n`id` and a `status`. Poll `GET /sandboxes/{sandboxId}` until `stop.status` is\n`completed`. A failed attempt shows `failing` with its `error` and is retried\nuntil the sandbox archives; commands and prompts you send meanwhile do not cancel\nit. Only a resume ends it early (`superseded`). Calling stop again while one is\npending returns the same `id`.\n\nSet `force: true` to stop anyway, keeping the last successful snapshot and\nlosing everything written since then. This is irreversible; only reach for it\nafter a stop has already failed. A force on a stop that is already pending\nescalates that stop.\n\nA stop never fails because the sandbox is already stopping or stopped: you get `202`\nwith the stop in progress, or `200` with the last stop once the sandbox is stopped.\n`statusUrl` is the path that reads the stop.\n",
         "operationId": "stop",
         "parameters": [
           {
@@ -12442,6 +12546,16 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "The sandbox is already stopped. `operation` is its last stop and `status` is `archived`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxActionResponse"
+                }
+              }
+            }
+          },
           "202": {
             "description": "Boat archival started or already in progress.",
             "content": {
@@ -12680,6 +12794,14 @@
         "responses": {
           "202": {
             "description": "Resume started.",
+            "headers": {
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -12718,7 +12840,7 @@
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "$ref": "#/components/responses/Conflict"
+            "$ref": "#/components/responses/SandboxStopping"
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"
@@ -12819,6 +12941,14 @@
         "responses": {
           "202": {
             "description": "Fork started. The response `id` is the new forked sandbox id.",
+            "headers": {
+              "RateLimit-Policy": {
+                "$ref": "#/components/headers/RateLimitPolicy"
+              },
+              "RateLimit": {
+                "$ref": "#/components/headers/RateLimit"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -13315,6 +13445,9 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "413": {
+            "$ref": "#/components/responses/FileTooLarge"
           }
         }
       },
@@ -13353,6 +13486,9 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "413": {
+            "$ref": "#/components/responses/FileTooLarge"
           }
         }
       },
@@ -14883,8 +15019,32 @@
           "Boat"
         ],
         "summary": "List saved snapshots",
-        "description": "List your saved snapshots, newest first.",
+        "description": "List your saved snapshots, newest first. An unknown query parameter is refused with `400 invalid_query`, which names it.",
         "operationId": "listSavedSnapshots",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrgId"
+          },
+          {
+            "$ref": "#/components/parameters/OrgHeader"
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keep the saved snapshot with exactly this name."
+          },
+          {
+            "name": "namePrefix",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keep saved snapshots whose name starts with this text, for example `ci-`. The match is literal."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Saved snapshots owned by the authenticated Boat user.",
@@ -14895,6 +15055,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -15161,7 +15324,7 @@
           "Boat"
         ],
         "summary": "List snapshots",
-        "description": "List visible completed snapshots across all of your sandboxes using immutable ownership attribution. Pinned, deletion-scheduled, and privacy-fenced sandbox snapshots are omitted. Follow `nextCursor` through the complete history; there is no hidden 500-snapshot cap.",
+        "description": "List visible completed snapshots across all of your sandboxes using immutable ownership attribution. Pinned, deletion-scheduled, and privacy-fenced sandbox snapshots are omitted. Follow `nextCursor` through the complete history; there is no hidden 500-snapshot cap. An unknown query parameter is refused with `400 invalid_query`, which names it.",
         "operationId": "listSnapshots",
         "parameters": [
           {
