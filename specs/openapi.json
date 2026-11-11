@@ -6642,6 +6642,10 @@
           "account": {
             "type": "string",
             "description": "GitHub organization or user login. Set this to authorize and link an existing installation. Omit it to install the app."
+          },
+          "orgApp": {
+            "type": "boolean",
+            "description": "Install Boat CI for orgs instead. It needs only the organization permission Self-hosted runners, not repository Administration. GitHub organizations only."
           }
         }
       },
@@ -9698,7 +9702,7 @@
           "Boat"
         ],
         "summary": "Create a scoped API key",
-        "description": "Creates a scoped, expiring API key. Requires a dashboard/CLI session or an admin-scoped token. The secret is returned once. An unknown field is a 400, so a misspelled scope never creates a full-access key. environmentIds takes your own environments and the org environments you can use. This dedicated path returns a typed 503 until scoped credential creation is activated.",
+        "description": "Creates a scoped, expiring API key. Requires a dashboard/CLI session or an admin-scoped token. The secret is returned once. At least one of preset, actions, sandboxIds, or environmentIds is required. Full account access requires an explicit admin preset. An unknown field is a 400, so a misspelled scope never creates a full-access key. environmentIds takes your own environments and the org environments you can use. This dedicated path returns a typed 503 until scoped credential creation is activated.",
         "operationId": "createScopedApiKey",
         "requestBody": {
           "required": true,
@@ -9707,6 +9711,43 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": false,
+                "anyOf": [
+                  {
+                    "required": [
+                      "preset"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "actions"
+                    ],
+                    "properties": {
+                      "actions": {
+                        "minItems": 1
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "sandboxIds"
+                    ],
+                    "properties": {
+                      "sandboxIds": {
+                        "minItems": 1
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "environmentIds"
+                    ],
+                    "properties": {
+                      "environmentIds": {
+                        "minItems": 1
+                      }
+                    }
+                  }
+                ],
                 "properties": {
                   "name": {
                     "type": "string"
