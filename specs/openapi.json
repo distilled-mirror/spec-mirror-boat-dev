@@ -1647,7 +1647,7 @@
               "object",
               "null"
             ],
-            "description": "Start ceilings with extra starts: the hour and day limits times `overagePrices.startLimitMultiplier`, and the minute limit times `overagePrices.startMinuteLimitMultiplier`. Starts above `startLimits` and up to these ceilings are paid from the wallet at the `overagePrices.startBrackets` prices. Null when extra starts are not available now (before the first payment, an empty wallet, or an unlimited account).",
+            "description": "Start ceilings with extra starts: the hour and day limits times `overagePrices.startLimitMultiplier`, and the minute limit times `overagePrices.startMinuteLimitMultiplier`. Starts above `startLimits` and up to these ceilings are paid from the wallet at the `overagePrices.startBrackets` prices. Null when extra starts are not available now (before the first payment, an empty wallet, extra starts set to fail, or an unlimited account).",
             "properties": {
               "perMinute": {
                 "type": "integer"
@@ -2224,6 +2224,20 @@
             "minLength": 1,
             "maxLength": 120,
             "description": "New display name. Empty strings are rejected; longer names are truncated to 120 chars by the backend."
+          },
+          "labels": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replaces all labels of the sandbox. `{}` or `null` removes them. Same rules as `CreateSandboxRequest.labels`."
           },
           "ttlSeconds": {
             "oneOf": [
@@ -4955,7 +4969,7 @@
       },
       "CommandRecord": {
         "type": "object",
-        "description": "One command run through the commands endpoint (kept 90 days), or one process of the sandbox with mode `process` (kept 72 hours). Readable while the sandbox is stopped.",
+        "description": "One command run through the commands endpoint (kept 7 days), or one process of the sandbox with mode `process` (kept 72 hours). Readable while the sandbox is stopped.",
         "required": [
           "commandId",
           "sandboxId",
@@ -8900,7 +8914,7 @@
         }
       },
       "NoReadyMachine": {
-        "description": "No capacity. `no_ready_machine`: a `failFast` create, fork or resume found no ready machine of that type; nothing was started, billed, or counted, and a resumed sandbox stays stopped. `out_of_capacity`: creates and forks are paused until the provisioning queue drains.",
+        "description": "The box could not start. `no_ready_machine`: a `failFast` create, fork or resume found no ready machine of that type; nothing was started, billed, or counted, and a resumed sandbox stays stopped. `service_unavailable`: your box could not start. Retry in a few minutes.",
         "content": {
           "application/json": {
             "schema": {
@@ -14018,7 +14032,7 @@
           "Boat"
         ],
         "summary": "Execute a command in a sandbox",
-        "description": "Runs the command synchronously by default (timeout configurable via `timeoutSeconds`, 600s cap). With `detached: true` the command starts in the background and a process id is returned immediately; poll `/sandboxes/{sandboxId}/commands/{processId}` for status and logs. With `stream: true` the output arrives as the command writes it, as newline-delimited JSON (`application/x-ndjson`): `{\"type\":\"started\"}`, then `{\"type\":\"stdout\"|\"stderr\",\"data\":\"...\"}` per chunk, and last `{\"type\":\"exit\",...}` (the synchronous result without stdout/stderr) or `{\"type\":\"error\",\"error\":\"...\",\"message\":\"...\"}`. Returns 400 invalid_timeout when `timeoutSeconds` is not an integer in 1-600. A command sent while the sandbox is still starting (right after a resume) waits up to 60s for it to be ready instead of failing; 409 boat_starting (retryable) is returned only if it is still not ready by then. A sandbox that is not starting (`error`, `stopped`) returns 409 sandbox_not_ready with `retryable: false` and its `state` at once: resume or recover it first. Command execution is never retried automatically: a 502 boat_direct_failed means the command may already be running on the sandbox. Every command and its output are kept 90 days in the command history (`/sandboxes/{sandboxId}/command-history`), readable while the sandbox is stopped.",
+        "description": "Runs the command synchronously by default (timeout configurable via `timeoutSeconds`, 600s cap). With `detached: true` the command starts in the background and a process id is returned immediately; poll `/sandboxes/{sandboxId}/commands/{processId}` for status and logs. With `stream: true` the output arrives as the command writes it, as newline-delimited JSON (`application/x-ndjson`): `{\"type\":\"started\"}`, then `{\"type\":\"stdout\"|\"stderr\",\"data\":\"...\"}` per chunk, and last `{\"type\":\"exit\",...}` (the synchronous result without stdout/stderr) or `{\"type\":\"error\",\"error\":\"...\",\"message\":\"...\"}`. Returns 400 invalid_timeout when `timeoutSeconds` is not an integer in 1-600. A command sent while the sandbox is still starting (right after a resume) waits up to 60s for it to be ready instead of failing; 409 boat_starting (retryable) is returned only if it is still not ready by then. A sandbox that is not starting (`error`, `stopped`) returns 409 sandbox_not_ready with `retryable: false` and its `state` at once: resume or recover it first. Command execution is never retried automatically: a 502 boat_direct_failed means the command may already be running on the sandbox. Every command and its output are kept 7 days in the command history (`/sandboxes/{sandboxId}/command-history`), readable while the sandbox is stopped.",
         "operationId": "command",
         "parameters": [
           {
@@ -14251,7 +14265,7 @@
           "Boat"
         ],
         "summary": "List the command and process history",
-        "description": "Every command run through `POST /sandboxes/{sandboxId}/commands` in the last 90 days, and every other process that wrote to its stdout/stderr in the last 72 hours (mode `process`), newest first. Works while the sandbox is stopped.",
+        "description": "Every command run through `POST /sandboxes/{sandboxId}/commands` in the last 7 days, and every other process that wrote to its stdout/stderr in the last 72 hours (mode `process`), newest first. Works while the sandbox is stopped.",
         "operationId": "commandHistory",
         "parameters": [
           {
