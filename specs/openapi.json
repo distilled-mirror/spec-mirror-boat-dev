@@ -2325,6 +2325,22 @@
               true
             ]
           },
+          "speed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "standard",
+              "fast",
+              "ultrafast",
+              null
+            ],
+            "description": "Optional. Same as `fast`, plus `ultrafast`, the fastest Codex tier, billed above fast. Only models with `ultrafastMode` set to `true` in `GET /provider-models` accept `ultrafast`. Other models return 400 `ultrafast_not_supported`. Ultrafast needs ChatGPT Pro, an Enterprise or Edu workspace with Ultrafast turned on, or an API organization with Ultrafast access. Without it, the prompt fails and says so. When you send both `speed` and `fast`, they must agree, or the request returns 400 `invalid_speed`.",
+            "examples": [
+              "ultrafast"
+            ]
+          },
           "new": {
             "type": "boolean",
             "description": "Start a NEW conversation on the sandbox (runs in parallel with any existing ones) instead of continuing the most-recently-active one. Mutually exclusive with `conversationId`.",
@@ -3614,7 +3630,20 @@
               "boolean",
               "null"
             ],
-            "description": "The prompt runs in fast mode. `null` means no speed is set yet. The prompt waits without a speed choice, or it ended without running (`done` is true). The speed is set when the prompt starts, for the model that runs."
+            "description": "The prompt runs in fast mode or Ultrafast. `null` means no speed is set yet. The prompt waits without a speed choice, or it ended without running (`done` is true). The speed is set when the prompt starts, for the model that runs."
+          },
+          "speed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "standard",
+              "fast",
+              "ultrafast",
+              null
+            ],
+            "description": "The speed of the prompt. `null` has the same meaning as for `fast`."
           },
           "conversationId": {
             "type": [
@@ -5375,7 +5404,15 @@
               },
               "fast": {
                 "type": "boolean",
-                "description": "The prompt runs in fast mode."
+                "description": "The prompt runs in fast mode or Ultrafast."
+              },
+              "speed": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "fast",
+                  "ultrafast"
+                ]
               }
             }
           }
