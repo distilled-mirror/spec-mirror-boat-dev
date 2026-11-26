@@ -504,7 +504,7 @@
               "null"
             ],
             "format": "uri",
-            "description": "Machine URL when assigned."
+            "description": "Machine URL when assigned. Null when `network.inbound` is `boat-only`."
           },
           "ip": {
             "type": [
@@ -518,7 +518,7 @@
               "string",
               "null"
             ],
-            "description": "Public IPv4 `host:port` that forwards to the sandbox SSH server. Set only when the machine has no public IPv4 of its own; null otherwise. Connect with `ssh -p <port> user@<host>`.",
+            "description": "Public IPv4 `host:port` that forwards to the sandbox SSH server. Set only when the machine has no public IPv4 of its own; null otherwise. Connect with `ssh -p <port> user@<host>`. Null when `network.inbound` is `boat-only`.",
             "examples": [
               "203.0.113.10:22001"
             ]
@@ -570,6 +570,9 @@
           "monitoring": {
             "type": "boolean",
             "description": "False when the sandbox was created with monitoring off."
+          },
+          "network": {
+            "$ref": "#/components/schemas/SandboxNetwork"
           },
           "snapshotAvailable": {
             "type": "boolean"
@@ -977,6 +980,14 @@
                     }
                   }
                 ]
+              },
+              "restriction": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "limited"
+                ],
+                "description": "`none`: the key reaches every sandbox and environment of the account. `limited`: only the listed sandboxes and environments."
               },
               "grandfathered": {
                 "type": "boolean"
@@ -2013,6 +2024,9 @@
             "default": true,
             "description": "Pass `false` for monitoring off. Boat keeps no command or process output, process list or CPU/RAM samples for this sandbox, and its history, processes and metrics calls answer 409 `monitoring_off`. Live output of a running command still works. While the account default is on, `true` is refused with 409 `monitoring_off_for_account`."
           },
+          "network": {
+            "$ref": "#/components/schemas/NetworkPolicyRequest"
+          },
           "failFast": {
             "type": "boolean",
             "default": false,
@@ -2629,6 +2643,17 @@
           "access": {
             "$ref": "#/components/schemas/ResourceAccess"
           },
+          "network": {
+            "description": "The outbound network policy of the latest version, or null when it sets none. A new sandbox in this environment gets it, unless the request sets a policy of its own. See https://docs.boat.dev/network-policy.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EnvironmentNetworkPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "envContents": {
             "type": "string",
             "description": "The latest version's .env-style content. Treat as sensitive."
@@ -2757,6 +2782,17 @@
           "access": {
             "$ref": "#/components/schemas/ResourceAccessUpdate"
           },
+          "network": {
+            "description": "Replaces the outbound network policy of the environment. An object sets it, null clears it, and an absent field keeps it. It makes a new version, like every other setting: a running sandbox changes only at an upgrade. Needs the `network.write` action as well as `environment.write`. A bad policy is refused with 400 `invalid_network_policy` before anything else of the request is saved.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EnvironmentNetworkPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "envContents": {
             "type": "string",
             "description": "Full .env-style content for the new version."
@@ -2797,7 +2833,7 @@
       },
       "UpgradeSandboxEnvironmentRequest": {
         "type": "object",
-        "description": "Repoint active sandboxes to the environment's latest version, scrubbing any owner secrets the new version drops and hot-pushing the new config.",
+        "description": "Repoint active sandboxes to the environment's latest version, scrubbing any owner secrets the new version drops and hot-pushing the new config. A sandbox that follows the environment's network policy gets the new policy, a running one now and a stopped one before its next start. When the new policy differs, the call needs the `network.write` action.",
         "properties": {
           "agentIds": {
             "type": "array",
@@ -2832,6 +2868,34 @@
           },
           "failed": {
             "type": "integer"
+          },
+          "failures": {
+            "type": "array",
+            "description": "One entry for each sandbox that the upgrade did not move. It stays on its version, with its policy.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sandboxId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "error": {
+                  "type": "string",
+                  "enum": [
+                    "network_policy_unsupported",
+                    "network_policy_agent_outdated",
+                    "network_policy_pending",
+                    "upgrade_failed"
+                  ],
+                  "description": "`network_policy_unsupported`: its host cannot enforce a policy yet. `network_policy_agent_outdated`: its agent is from before network policies. For both, stop the sandbox, then upgrade again. `network_policy_pending`: its host did not confirm the policy in time. `upgrade_failed`: another failure."
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "latestVersionId": {
             "type": "string",
@@ -2910,6 +2974,195 @@
           "title": {
             "type": "string",
             "description": "Display title for the hosted port."
+          }
+        }
+      },
+      "NetworkPolicyRequest": {
+        "type": "object",
+        "description": "What the sandbox may connect to. Send `mode`, `inbound` or both: at least one. The side that the request does not name stays as it is. A sandbox that sets one side has its own policy and no longer follows its environment; `mode: environment` makes it follow again. On create, omitted means the policy of its environment; with `from`, the policy that the saved snapshot's sandbox had. On fork, omitted means what the source sandbox has. An API key without the `network.write` action always gets the policy that the sandbox would have without this field, a tighter one included: any other value is refused with 403 `api_key_action_forbidden`. A bad policy is refused with 400 `invalid_network_policy`. When no host can enforce a policy now, create and fork answer 409 `network_policy_unsupported`. A CI runner is always `open` and follows no environment.",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "open",
+              "deny",
+              "allow",
+              "environment"
+            ],
+            "description": "`open`: no limit. `deny`: the sandbox opens no connection. `allow`: it connects only to the entries of `allow`. `environment`: no policy of its own; the sandbox follows the policy of its environment (open when the environment sets none). This is the default on create. In an organization environment that sets a policy, only owners and admins can give a sandbox another policy: members get 403 `network_policy_managed`."
+          },
+          "allow": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "string"
+            },
+            "description": "With mode `allow`, 1 to 100 entries; empty or omitted with any other mode. Each entry is a domain (`github.com`), a wildcard (`*.github.com`, which covers the domain itself and every subdomain), a public IP address or a public CIDR range. No scheme, port or path. A domain entry allows TCP 443 (matched by TLS SNI) and TCP 80 (matched by HTTP Host). An IP or CIDR entry allows every protocol and port.",
+            "examples": [
+              [
+                "github.com",
+                "*.githubusercontent.com",
+                "192.0.43.0/24"
+              ]
+            ]
+          },
+          "inbound": {
+            "type": "string",
+            "enum": [
+              "open",
+              "boat-only"
+            ],
+            "description": "Who can connect to the sandbox. `open`: anyone on the internet, on the ports that the sandbox opens. `boat-only`: only boat. The host drops every other connection to the sandbox, so code inside cannot make a port public. SSH, editors, port forwards, the desktop and raw ports stop: their routes answer 403 `inbound_closed`. A caller outside the sandbox (a session, or an API key that does not live in a sandbox) can still publish a port with `POST /sandboxes/{id}/host`. Commands and files through the API keep working. Omitted on PUT: the sandbox keeps what it has. Omitted on create or fork: what the sandbox inherits, else `open`. A change of `inbound` is a change of the policy: the same rules on keys and on organization environments apply."
+          }
+        },
+        "examples": [
+          {
+            "mode": "deny"
+          },
+          {
+            "mode": "deny",
+            "inbound": "boat-only"
+          },
+          {
+            "inbound": "boat-only"
+          },
+          {
+            "mode": "allow",
+            "allow": [
+              "github.com",
+              "registry.npmjs.org"
+            ]
+          },
+          {
+            "mode": "environment"
+          }
+        ]
+      },
+      "EnvironmentNetworkPolicy": {
+        "type": "object",
+        "description": "The outbound network policy that an environment gives its sandboxes.",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "open",
+              "deny",
+              "allow"
+            ],
+            "description": "`open`: no limit, also for a sandbox whose own policy is unset. `deny`: no connection. `allow`: only the entries of `allow`."
+          },
+          "allow": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "string"
+            },
+            "description": "With mode `allow`, 1 to 100 entries, as in a sandbox policy. Empty or omitted with any other mode."
+          },
+          "inbound": {
+            "type": "string",
+            "enum": [
+              "open",
+              "boat-only"
+            ],
+            "description": "Who can connect to the sandboxes of this environment. `open`: anyone on the internet. `boat-only`: only boat; code in a sandbox cannot make a port public, and SSH, the desktop and raw ports stop. A caller outside the sandbox can still publish a port. Omitted in a request: the environment keeps what it has."
+          }
+        },
+        "examples": [
+          {
+            "mode": "deny"
+          },
+          {
+            "mode": "deny",
+            "inbound": "boat-only"
+          },
+          {
+            "inbound": "boat-only"
+          },
+          {
+            "mode": "allow",
+            "allow": [
+              "api.anthropic.com",
+              "github.com"
+            ]
+          }
+        ]
+      },
+      "SandboxNetwork": {
+        "type": "object",
+        "description": "The sandbox's outbound network policy.",
+        "required": [
+          "mode",
+          "allow",
+          "status",
+          "updatedAt"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "open",
+              "deny",
+              "allow"
+            ]
+          },
+          "allow": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The canonical entries. Empty unless mode is `allow`."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "enforced",
+              "pending",
+              "none"
+            ],
+            "description": "`enforced`: the sandbox's host confirmed this policy. `pending`: saved, and not on the host yet. A running sandbox keeps its previous rules until then; a stopped one gets this policy before its next start. `none`: the mode is `open`."
+          },
+          "inbound": {
+            "type": "string",
+            "enum": [
+              "open",
+              "boat-only"
+            ],
+            "description": "Who can connect to the sandbox. `open`: anyone on the internet. `boat-only`: only boat; the host drops every other connection to the sandbox. `status` covers both directions."
+          },
+          "pendingReason": {
+            "type": "string",
+            "enum": [
+              "host",
+              "transfer"
+            ],
+            "description": "Only with status `pending`. `host`: the host has not confirmed the policy yet. `transfer`: the host enforces the policy, and a restore or a snapshot still runs. Until it ends, the storage servers of boat stay reachable over TLS."
+          },
+          "apiBound": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "True when this sandbox reaches the boat API only as itself, with the credentials boat put in it. boat refuses every other key, sign-in or session from inside it with 403 `sandbox_bound`. Every sandbox that starts restricted is bound. False on a running sandbox that you restricted while it ran: its next start binds it. Null while the sandbox has no machine, or while boat prepares one."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "environment",
+              "sandbox",
+              "default"
+            ],
+            "description": "Where the policy comes from. `environment`: the policy of its environment version. `sandbox`: a policy set on this sandbox. `default`: neither sets one, so the sandbox is open."
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the policy was last set, or null if never."
           }
         }
       },
@@ -5638,6 +5891,47 @@
               "localhost": {
                 "type": "boolean",
                 "description": "The sandbox relays the URL to a service that listens on localhost only."
+              }
+            }
+          }
+        ]
+      },
+      "NetworkPolicyResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "network"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "network.info",
+                  "network.updated"
+                ]
+              },
+              "network": {
+                "$ref": "#/components/schemas/SandboxNetwork"
+              },
+              "sandbox": {
+                "type": "object",
+                "description": "The sandbox of this policy and its state now.",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "The sandbox state, as in the sandbox object."
+                  }
+                }
               }
             }
           }
@@ -8821,13 +9115,28 @@
         }
       },
       "Forbidden": {
-        "description": "Authenticated token is not allowed to perform this action.",
+        "description": "Authenticated token is not allowed to perform this action. `sandbox_bound` on any route means that the call comes from inside a sandbox that started with a network policy, with a credential that is not its own. `inbound_closed` means that the sandbox accepts connections from boat only (`network.inbound` is `boat-only`), so the route cannot open a way in: SSH keys, port forwards, the desktop and the browser stream. On the host and rotate routes it means that the caller is inside a sandbox: the key that lives in a sandbox, or a request that a sandbox with a network policy sent. Publish from outside the sandbox.",
         "content": {
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorEnvelope"
             },
             "examples": {
+              "sandboxBound": {
+                "value": {
+                  "ok": false,
+                  "type": "sandbox.error",
+                  "status": 403,
+                  "code": "sandbox_bound",
+                  "message": "This sandbox reaches the API only as itself: use the credentials Boat put in it.",
+                  "error": {
+                    "code": "sandbox_bound",
+                    "message": "This sandbox reaches the API only as itself: use the credentials Boat put in it.",
+                    "status": 403
+                  },
+                  "requestId": "req_01HX..."
+                }
+              },
               "forbidden": {
                 "value": {
                   "ok": false,
@@ -9753,7 +10062,7 @@
           "Boat"
         ],
         "summary": "Create a scoped API key",
-        "description": "Creates a scoped, expiring API key. Requires a dashboard/CLI session or an admin-scoped token. The secret is returned once. At least one of preset, actions, sandboxIds, or environmentIds is required. Full account access requires an explicit admin preset. An unknown field is a 400, so a misspelled scope never creates a full-access key. environmentIds takes your own environments and the org environments you can use. This dedicated path returns a typed 503 until scoped credential creation is activated.",
+        "description": "Creates a scoped, expiring API key. Requires a dashboard/CLI session or an admin-scoped token. The secret is returned once. At least one of preset, actions, sandboxIds, or environmentIds is required. Full account access requires an explicit admin preset. An unknown field is a 400, so a misspelled scope never creates a full-access key. An empty sandboxIds or environmentIds list is a 400 for the same reason. environmentIds takes your own environments and the org environments you can use. This dedicated path returns a typed 503 until scoped credential creation is activated.",
         "operationId": "createScopedApiKey",
         "requestBody": {
           "required": true,
@@ -9828,12 +10137,14 @@
                   },
                   "sandboxIds": {
                     "type": "array",
+                    "minItems": 1,
                     "items": {
                       "type": "string"
                     }
                   },
                   "environmentIds": {
                     "type": "array",
+                    "minItems": 1,
                     "items": {
                       "type": "string"
                     }
@@ -9914,7 +10225,7 @@
           "Boat"
         ],
         "summary": "Revoke an API key",
-        "description": "Revokes the key immediately. Requires a dashboard or CLI session, or an admin-scoped key. A key revokes itself or a key it could create (same or fewer actions, sandboxes and environments, no later expiry).",
+        "description": "Revokes the key immediately. Command streams opened with it end within 15 seconds. It does not remove SSH keys that were added to a sandbox, stop running commands, or rotate hosted port tokens. Requires a dashboard or CLI session, or an admin-scoped key. A key revokes itself or a key it could create (same or fewer actions, sandboxes and environments, no later expiry).",
         "operationId": "revokeApiKey",
         "responses": {
           "200": {
@@ -12982,6 +13293,9 @@
                     "type": "boolean",
                     "description": "`false` creates the fork with monitoring off: Boat keeps no command or process output, process list or CPU/RAM samples for it. Omitted, the fork keeps the source sandbox's setting. `true` turns it on for the fork, unless the account has monitoring off by default (`409` `monitoring_off_for_account`)."
                   },
+                  "network": {
+                    "$ref": "#/components/schemas/NetworkPolicyRequest"
+                  },
                   "env": {
                     "type": "object",
                     "additionalProperties": {
@@ -14814,7 +15128,7 @@
           "Boat"
         ],
         "summary": "Expose a sandbox port on a public HTTPS URL",
-        "description": "Registers a stable `https://<sandbox-subdomain>-<port>.on.boat.dev` route for a port inside the sandbox and opens the sandbox firewall for it. Idempotent: calling it again for the same sandbox and port returns the same URL and token.",
+        "description": "Registers a stable `https://<sandbox-subdomain>-<port>.on.boat.dev` route for a port inside the sandbox and opens the sandbox firewall for it. Idempotent: calling it again for the same sandbox and port returns the same URL and token. On a sandbox with `network.inbound` `boat-only`, only a caller outside the sandbox can publish: a session, or an API key that does not live in a sandbox. The key that lives in the sandbox, and any request that a sandbox with a network policy sends, get 403 `inbound_closed`. With `public: true` the URL carries no token; the raw port stays closed.",
         "operationId": "hostPort",
         "parameters": [
           {
@@ -14864,8 +15178,138 @@
           "402": {
             "$ref": "#/components/responses/PaymentRequired"
           },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/network": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get a sandbox's network policy",
+        "description": "The outbound network policy, and whether the sandbox's host enforces it. Needs `sandbox.read`.",
+        "operationId": "getNetworkPolicy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The policy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkPolicyResponse"
+                },
+                "examples": {
+                  "enforced": {
+                    "value": {
+                      "ok": true,
+                      "type": "network.info",
+                      "network": {
+                        "mode": "allow",
+                        "allow": [
+                          "github.com",
+                          "registry.npmjs.org"
+                        ],
+                        "status": "enforced",
+                        "updatedAt": "2026-11-23T12:00:00Z"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Replace a sandbox's network policy",
+        "description": "Replaces the whole outbound policy, on a running or a stopped sandbox. A change also ends open connections that the new policy does not allow. Commands, SSH and files keep working. Hosted ports and the desktop stop working in `deny` and `allow`, because their tunnel is an outbound connection. Needs `network.write`, which only the `admin` preset holds. The key inside a sandbox is always refused.",
+        "operationId": "setNetworkPolicy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetworkPolicyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Enforced now, or saved on a stopped sandbox and applied before its next start (`status` is then `pending`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkPolicyResponse"
+                },
+                "examples": {
+                  "enforced": {
+                    "value": {
+                      "ok": true,
+                      "type": "network.updated",
+                      "network": {
+                        "mode": "deny",
+                        "allow": [],
+                        "status": "enforced",
+                        "updatedAt": "2026-11-23T12:00:00Z"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Saved. The sandbox runs and the policy is not fully on its host yet; boat retries until it is. Read `status` again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkPolicyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
