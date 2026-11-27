@@ -107,6 +107,58 @@
       }
     },
     "parameters": {
+      "IncludeInboundAllow": {
+        "name": "include",
+        "in": "query",
+        "required": false,
+        "style": "form",
+        "explode": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "inboundAllow"
+            ]
+          }
+        },
+        "description": "Optional fields of the answer. `inboundAllow`: the answer holds `network.inboundAllow`, always an array, and empty when there is no list. Without it, the answer has the fields that it had before the inbound list existed."
+      },
+      "IncludeNetworkPolicy": {
+        "name": "include",
+        "in": "query",
+        "required": false,
+        "style": "form",
+        "explode": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "inboundAllow",
+              "access"
+            ]
+          }
+        },
+        "description": "Optional fields of the answer, separated by commas: `?include=inboundAllow,access`. `inboundAllow`: the answer holds `network.inboundAllow`, always an array, and empty when there is no list. `access`: the answer holds `access`. Without a name, the answer does not hold that field."
+      },
+      "IncludeCaller": {
+        "name": "include",
+        "in": "query",
+        "required": false,
+        "style": "form",
+        "explode": false,
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "caller"
+            ]
+          }
+        },
+        "description": "Optional fields of the answer. `caller`: on a sandbox with an inbound list, the answer holds `caller.address` and `caller.listed`. Without it, the answer has the fields that it had before."
+      },
       "SandboxId": {
         "name": "sandboxId",
         "in": "path",
@@ -518,7 +570,7 @@
               "string",
               "null"
             ],
-            "description": "Public IPv4 `host:port` that forwards to the sandbox SSH server. Set only when the machine has no public IPv4 of its own; null otherwise. Connect with `ssh -p <port> user@<host>`. Null when `network.inbound` is `boat-only`.",
+            "description": "Public IPv4 `host:port` that forwards to the sandbox SSH server. Set only when the machine has no public IPv4 of its own; null otherwise. Connect with `ssh -p <port> user@<host>`. Null when `network.inbound` is `boat-only` and the sandbox has no inbound list. Set again when the list has an entry. The sandbox object never holds the list: read it from `GET /sandboxes/{sandboxId}/network?include=inboundAllow`.",
             "examples": [
               "203.0.113.10:22001"
             ]
@@ -2979,7 +3031,7 @@
       },
       "NetworkPolicyRequest": {
         "type": "object",
-        "description": "What the sandbox may connect to. Send `mode`, `inbound` or both: at least one. The side that the request does not name stays as it is. A sandbox that sets one side has its own policy and no longer follows its environment; `mode: environment` makes it follow again. On create, omitted means the policy of its environment; with `from`, the policy that the saved snapshot's sandbox had. On fork, omitted means what the source sandbox has. An API key without the `network.write` action always gets the policy that the sandbox would have without this field, a tighter one included: any other value is refused with 403 `api_key_action_forbidden`. A bad policy is refused with 400 `invalid_network_policy`. When no host can enforce a policy now, create and fork answer 409 `network_policy_unsupported`. A CI runner is always `open` and follows no environment.",
+        "description": "What the sandbox may connect to. Send `mode`, `inbound` or both: at least one. The side that the request does not name stays as it is. `inbound` and `inboundAllow` are one side. A sandbox that sets one side has its own policy and no longer follows its environment; `mode: environment` makes it follow again. On create, omitted means the policy of its environment; with `from`, the policy that the saved snapshot's sandbox had. On fork, omitted means what the source sandbox has. An API key without the `network.write` action always gets the policy that the sandbox would have without this field, a tighter one included: any other value is refused with 403 `api_key_action_forbidden`. A bad policy is refused with 400 `invalid_network_policy`. When no host can enforce a policy now, create and fork answer 409 `network_policy_unsupported`. A CI runner is always `open` and follows no environment.",
         "additionalProperties": false,
         "properties": {
           "mode": {
@@ -2998,7 +3050,7 @@
             "items": {
               "type": "string"
             },
-            "description": "With mode `allow`, 1 to 100 entries; empty or omitted with any other mode. Each entry is a domain (`github.com`), a wildcard (`*.github.com`, which covers the domain itself and every subdomain), a public IP address or a public CIDR range. No scheme, port or path. A domain entry allows TCP 443 (matched by TLS SNI) and TCP 80 (matched by HTTP Host). An IP or CIDR entry allows every protocol and port.",
+            "description": "With mode `allow`, 1 to 100 entries; empty or omitted with any other mode. An empty list with no `mode`, or with mode `open` or `deny`, means no list. Each entry is a domain (`github.com`), a wildcard (`*.github.com`, which covers the domain itself and every subdomain), a public IP address or a public CIDR range. No scheme, port or path. A domain entry allows TCP 443 (matched by TLS SNI) and TCP 80 (matched by HTTP Host). An IP or CIDR entry allows every protocol and port.",
             "examples": [
               [
                 "github.com",
@@ -3013,7 +3065,34 @@
               "open",
               "boat-only"
             ],
-            "description": "Who can connect to the sandbox. `open`: anyone on the internet, on the ports that the sandbox opens. `boat-only`: only boat. The host drops every other connection to the sandbox, so code inside cannot make a port public. SSH, editors, port forwards, the desktop and raw ports stop: their routes answer 403 `inbound_closed`. A caller outside the sandbox (a session, or an API key that does not live in a sandbox) can still publish a port with `POST /sandboxes/{id}/host`. Commands and files through the API keep working. Omitted on PUT: the sandbox keeps what it has. Omitted on create or fork: what the sandbox inherits, else `open`. A change of `inbound` is a change of the policy: the same rules on keys and on organization environments apply."
+            "description": "Who can connect to the sandbox. `open`: anyone on the internet, on the ports that the sandbox opens. `boat-only`: only boat. The host drops every other connection to the sandbox, so code inside cannot make a port public. SSH, editors, port forwards, the desktop and raw ports stop: their routes answer 403 `inbound_closed`. A caller outside the sandbox (a session, or an API key that does not live in a sandbox) can still publish a port with `POST /sandboxes/{id}/host`. Commands and files through the API keep working. Omitted on PUT: the sandbox keeps what it has. Omitted on create or fork: what the sandbox inherits, else `open`. A change of `inbound` is a change of the policy: the same rules on keys and on organization environments apply. With `boat-only`, the addresses of `inboundAllow` keep SSH and raw ports."
+          },
+          "inboundAllow": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string"
+            },
+            "description": "The public addresses that can still connect directly to the sandbox when `inbound` is `boat-only`. Each entry is a public IPv4 or IPv6 address, or a public CIDR range. No domain, port or path. At most 50 entries. Private ranges, reserved ranges and `/0` are refused with 400 `invalid_network_policy`. A listed address reaches SSH and the raw ports of the sandbox. The desktop, the browser stream, signed file URLs and `host <port>` inside the sandbox stay off: they answer 403 `inbound_closed`. A list with entries needs `inbound: boat-only` in the same request. A request that names `inbound` without `inboundAllow` empties the list. An empty list means no list. A request that names neither keeps both.",
+            "examples": [
+              [
+                "192.0.43.7",
+                "2001:500:88:200::/64"
+              ]
+            ]
+          },
+          "inboundAllowAdd": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string"
+            },
+            "description": "Only on `PUT /sandboxes/{sandboxId}/network`: not on create, fork or environments. The entries to add to the list that the sandbox has. The entry rules of `inboundAllow` apply. It needs `inbound: boat-only` in the same request. Do not send it together with an `inboundAllow` that has entries. boat adds the entries when the write runs. Two callers that each add an address both keep their address. An address that another caller removed stays removed. An open sandbox becomes `boat-only` with these entries only. A result of more than 50 entries is refused with 400 `invalid_network_policy`. The answer shows the whole list in `network.inboundAllow` when the request has `include=inboundAllow`.",
+            "examples": [
+              [
+                "192.0.43.8"
+              ]
+            ]
           }
         },
         "examples": [
@@ -3026,6 +3105,19 @@
           },
           {
             "inbound": "boat-only"
+          },
+          {
+            "inbound": "boat-only",
+            "inboundAllow": [
+              "192.0.43.7",
+              "2001:500:88:200::/64"
+            ]
+          },
+          {
+            "inbound": "boat-only",
+            "inboundAllowAdd": [
+              "192.0.43.8"
+            ]
           },
           {
             "mode": "allow",
@@ -3067,7 +3159,21 @@
               "open",
               "boat-only"
             ],
-            "description": "Who can connect to the sandboxes of this environment. `open`: anyone on the internet. `boat-only`: only boat; code in a sandbox cannot make a port public, and SSH, the desktop and raw ports stop. A caller outside the sandbox can still publish a port. Omitted in a request: the environment keeps what it has."
+            "description": "Who can connect to the sandboxes of this environment. `open`: anyone on the internet. `boat-only`: only boat; code in a sandbox cannot make a port public, and SSH, the desktop and raw ports stop. A caller outside the sandbox can still publish a port. Omitted in a request: the environment keeps what it has. With `boat-only`, the addresses of `inboundAllow` keep SSH and raw ports."
+          },
+          "inboundAllow": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string"
+            },
+            "description": "The public addresses that can still connect directly to the sandboxes of this environment when `inbound` is `boat-only`. The same rules as in a sandbox policy apply. In an answer: only when the request has `include=inboundAllow`. It is then always an array.",
+            "examples": [
+              [
+                "192.0.43.7",
+                "2001:500:88:200::/64"
+              ]
+            ]
           }
         },
         "examples": [
@@ -3080,6 +3186,13 @@
           },
           {
             "inbound": "boat-only"
+          },
+          {
+            "inbound": "boat-only",
+            "inboundAllow": [
+              "192.0.43.7",
+              "2001:500:88:200::/64"
+            ]
           },
           {
             "mode": "allow",
@@ -3130,7 +3243,20 @@
               "open",
               "boat-only"
             ],
-            "description": "Who can connect to the sandbox. `open`: anyone on the internet. `boat-only`: only boat; the host drops every other connection to the sandbox. `status` covers both directions."
+            "description": "Who can connect to the sandbox. `open`: anyone on the internet. `boat-only`: only boat, and the addresses of `inboundAllow`; the host drops every other connection to the sandbox. `status` covers both directions."
+          },
+          "inboundAllow": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The public addresses that can connect directly to the sandbox when `inbound` is `boat-only`: SSH and raw ports. The canonical entries. Only when the request has `include=inboundAllow` on a network policy route. It is then always an array, and empty when there is no list. The sandbox object never holds it.",
+            "examples": [
+              [
+                "192.0.43.7",
+                "2001:500:88:200::/64"
+              ]
+            ]
           },
           "pendingReason": {
             "type": "string",
@@ -5932,6 +6058,49 @@
                     "description": "The sandbox state, as in the sandbox object."
                   }
                 }
+              },
+              "access": {
+                "type": "object",
+                "description": "What the caller may do with this policy. Only when the request has `include=access`.",
+                "properties": {
+                  "canChange": {
+                    "type": "boolean",
+                    "description": "The caller may change the policy. False answers 403 `owner_only` on PUT."
+                  },
+                  "managed": {
+                    "type": "boolean",
+                    "description": "The organization environment sets the policy. The caller may only make the sandbox follow it (`mode: environment`). Any other policy answers 403 `network_policy_managed`."
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "CallerAddressResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SuccessBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "address"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "caller.address"
+              },
+              "address": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The public address that this request comes from, as boat sees it. Null when boat cannot tell. Use it as an entry of `network.inboundAllow`.",
+                "examples": [
+                  "192.0.43.7"
+                ]
               }
             }
           }
@@ -5945,6 +6114,26 @@
           {
             "type": "object",
             "properties": {
+              "caller": {
+                "type": "object",
+                "description": "Only when the request has `include=caller` and the sandbox has an inbound list. The caller of this request, as boat sees it.",
+                "properties": {
+                  "address": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "The public address that the request comes from. Null when boat cannot tell.",
+                    "examples": [
+                      "192.0.43.7"
+                    ]
+                  },
+                  "listed": {
+                    "type": "boolean",
+                    "description": "An entry of the inbound list covers `address`."
+                  }
+                }
+              },
               "success": {
                 "type": "boolean"
               },
@@ -9115,13 +9304,32 @@
         }
       },
       "Forbidden": {
-        "description": "Authenticated token is not allowed to perform this action. `sandbox_bound` on any route means that the call comes from inside a sandbox that started with a network policy, with a credential that is not its own. `inbound_closed` means that the sandbox accepts connections from boat only (`network.inbound` is `boat-only`), so the route cannot open a way in: SSH keys, port forwards, the desktop and the browser stream. On the host and rotate routes it means that the caller is inside a sandbox: the key that lives in a sandbox, or a request that a sandbox with a network policy sent. Publish from outside the sandbox.",
+        "description": "Authenticated token is not allowed to perform this action. `sandbox_bound` on any route means that the call comes from inside a sandbox that started with a network policy, with a credential that is not its own. `inbound_closed` means that the sandbox accepts connections from boat only (`network.inbound` is `boat-only`), so the route cannot open a way in: SSH keys, port forwards, the desktop and the browser stream. On the host and rotate routes it means that the caller is inside a sandbox: the key that lives in a sandbox, or a request that a sandbox with a network policy sent. Publish from outside the sandbox. `inbound_not_allowed` on the SSH key route means that `network.inboundAllow` has entries and none covers the caller's address. The route answers it only when the list also holds no entry of the other IP version. `error.details.address` is that address. Add it with `inboundAllowAdd`.",
         "content": {
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorEnvelope"
             },
             "examples": {
+              "inboundNotAllowed": {
+                "value": {
+                  "ok": false,
+                  "type": "sandbox.error",
+                  "status": 403,
+                  "code": "inbound_not_allowed",
+                  "message": "This sandbox accepts direct connections only from the addresses in its inbound list, and yours (192.0.43.8) is not in it. Add it: boat network set bx_f7k2q9hd --add-allow-from 192.0.43.8",
+                  "error": {
+                    "code": "inbound_not_allowed",
+                    "message": "This sandbox accepts direct connections only from the addresses in its inbound list, and yours (192.0.43.8) is not in it. Add it: boat network set bx_f7k2q9hd --add-allow-from 192.0.43.8",
+                    "status": 403,
+                    "details": {
+                      "error": "inbound_not_allowed",
+                      "address": "192.0.43.8"
+                    }
+                  },
+                  "requestId": "req_01HX..."
+                }
+              },
               "sandboxBound": {
                 "value": {
                   "ok": false,
@@ -9299,6 +9507,40 @@
                         "zeroDataRetention": false,
                         "zeroDataRetentionEnabledAt": null
                       }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/caller-address": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Get the caller's address",
+        "description": "The public address that this request comes from, as boat sees it. Use it as an entry of `network.inboundAllow`. Your network can use another address for the other IP version (IPv4 or IPv6): add both. Any key or session can call this route.",
+        "operationId": "getCallerAddress",
+        "responses": {
+          "200": {
+            "description": "The address of the caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallerAddressResponse"
+                },
+                "examples": {
+                  "address": {
+                    "value": {
+                      "ok": true,
+                      "type": "caller.address",
+                      "address": "192.0.43.7"
                     }
                   }
                 }
@@ -12007,6 +12249,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/OrgId"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeInboundAllow"
           }
         ],
         "responses": {
@@ -12124,6 +12369,11 @@
         "summary": "Update a sandbox environment",
         "description": "Rename, set as default, and/or edit flags and contents. Any flag or content change mints a new immutable version; existing sandboxes stay on their pinned version until you call upgrade.",
         "operationId": "updateEnvironment",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IncludeInboundAllow"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -15193,16 +15443,19 @@
           "Boat"
         ],
         "summary": "Get a sandbox's network policy",
-        "description": "The outbound network policy, and whether the sandbox's host enforces it. Needs `sandbox.read`.",
+        "description": "The network policy (outbound and inbound), and whether the sandbox's host enforces it. To read the inbound list, add `?include=inboundAllow`. Needs `sandbox.read`.",
         "operationId": "getNetworkPolicy",
         "parameters": [
           {
             "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeNetworkPolicy"
           }
         ],
         "responses": {
           "200": {
-            "description": "The policy.",
+            "description": "The policy. The example shows an answer to `?include=inboundAllow`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15218,6 +15471,10 @@
                         "allow": [
                           "github.com",
                           "registry.npmjs.org"
+                        ],
+                        "inbound": "boat-only",
+                        "inboundAllow": [
+                          "192.0.43.7"
                         ],
                         "status": "enforced",
                         "updatedAt": "2026-11-23T12:00:00Z"
@@ -15244,11 +15501,14 @@
           "Boat"
         ],
         "summary": "Replace a sandbox's network policy",
-        "description": "Replaces the whole outbound policy, on a running or a stopped sandbox. A change also ends open connections that the new policy does not allow. Commands, SSH and files keep working. Hosted ports and the desktop stop working in `deny` and `allow`, because their tunnel is an outbound connection. Needs `network.write`, which only the `admin` preset holds. The key inside a sandbox is always refused.",
+        "description": "Sets the policy, on a running or a stopped sandbox. The side that the request does not name (`mode` and `allow`, or `inbound` and `inboundAllow`) stays as it is. To add one address to the inbound list, send `inboundAllowAdd`. A change also ends open connections that the new policy does not allow. Commands and files keep working. SSH keeps working unless `inbound` is `boat-only` and `inboundAllow` does not cover the caller's address. Hosted ports and the desktop work in every outbound mode. Needs `network.write`, which only the `admin` preset holds. The key inside a sandbox is always refused.",
         "operationId": "setNetworkPolicy",
         "parameters": [
           {
             "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeNetworkPolicy"
           }
         ],
         "requestBody": {
@@ -15263,7 +15523,7 @@
         },
         "responses": {
           "200": {
-            "description": "Enforced now, or saved on a stopped sandbox and applied before its next start (`status` is then `pending`).",
+            "description": "Enforced now, or saved on a stopped sandbox and applied before its next start (`status` is then `pending`). The example shows an answer to `?include=inboundAllow`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15277,6 +15537,10 @@
                       "network": {
                         "mode": "deny",
                         "allow": [],
+                        "inbound": "boat-only",
+                        "inboundAllow": [
+                          "192.0.43.7"
+                        ],
                         "status": "enforced",
                         "updatedAt": "2026-11-23T12:00:00Z"
                       }
@@ -15320,11 +15584,14 @@
           "Boat"
         ],
         "summary": "Configure sandbox SSH key",
-        "description": "Adds an OpenSSH public key to the running sandbox so the caller can SSH as user `user`. The response carries `machineIp`, which is the host to connect to on port 22.\n\nThis is also how you reach your own machine from inside a sandbox without the CLI: authorize the key, then open a reverse tunnel with stock OpenSSH, and a port on your machine answers at `127.0.0.1:<port>` inside the sandbox for as long as the ssh process runs.\n\n```bash\nssh -o ExitOnForwardFailure=yes -i ~/.ssh/id_ed25519 -N -R 7777:127.0.0.1:7777 user@<machineIp>\n```\n\n`boat forward <id> --reverse --local 7777` is the same tunnel with the key handling and redial done for you.\n",
+        "description": "Adds an OpenSSH public key to the running sandbox so the caller can SSH as user `user`. The response carries `machineIp`, which is the host to connect to on port 22.\n\nThis is also how you reach your own machine from inside a sandbox without the CLI: authorize the key, then open a reverse tunnel with stock OpenSSH, and a port on your machine answers at `127.0.0.1:<port>` inside the sandbox for as long as the ssh process runs.\n\n```bash\nssh -o ExitOnForwardFailure=yes -i ~/.ssh/id_ed25519 -N -R 7777:127.0.0.1:7777 user@<machineIp>\n```\n\n`boat forward <id> --reverse --local 7777` is the same tunnel with the key handling and redial done for you.\n\nOn a sandbox with `network.inbound` `boat-only`, the route answers 403 `inbound_closed` when the sandbox has no inbound list. A sandbox takes SSH over IPv4 and over IPv6, and boat sees only the address of this API request. When the list has entries, the route answers 403 `inbound_not_allowed`, with the address in `error.details.address`, only when the list does not cover the caller's address and holds no entry of the other IP version. In every other case the route answers normally, and the host accepts or drops the SSH connection by its real source address. With `?include=caller`, the answer then holds `caller.address` and `caller.listed`.\n",
         "operationId": "sshKey",
         "parameters": [
           {
             "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "$ref": "#/components/parameters/IncludeCaller"
           }
         ],
         "requestBody": {
@@ -15367,6 +15634,9 @@
           },
           "402": {
             "$ref": "#/components/responses/PaymentRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
