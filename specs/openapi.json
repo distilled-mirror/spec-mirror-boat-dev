@@ -2338,9 +2338,8 @@
       },
       "PromptRequest": {
         "type": "object",
-        "description": "Work item to queue inside an existing sandbox. Provider credentials must already be configured in the Boat dashboard.\n\n**Providers (harnesses):** `codex`, `claude-code` (alias `claude`), `pi`, `opencode`, `prime-agent` (alias `prime`), `kimi` (Kimi Code CLI, alias `kimi-code`), `mistral` (Mistral Vibe). Omit `provider` to use the harness the user selected on the Agents dashboard.\n\n**Models & reasoning effort** are harness- and model-specific and change over time. Fetch the live catalog (every provider's models and which reasoning-effort levels each accepts) from `GET /provider-models`. Some models accept no reasoning control. `pi`, `opencode` and `prime-agent` also expose models routed through OpenRouter and llmgateway (ids like `openrouter:anthropic/claude-sonnet-4.5`).\n\n**Conversations:** a sandbox runs many conversations in parallel, each with its own history. Set `new: true` to start a fresh conversation, or `conversationId` to continue a specific one; omit both to continue the sandbox's most-recently-active conversation. The response returns the `conversationId` this prompt ran in. Conversations run concurrently up to a per-sandbox limit that scales with the sandbox's memory; beyond it, prompts queue.\n",
+        "description": "Work item to queue inside an existing sandbox. Provider credentials must already be configured in the Boat dashboard.\n\n**Providers (harnesses):** `codex`, `claude-code` (alias `claude`), `pi`, `opencode`, `prime-agent` (alias `prime`), `kimi` (Kimi Code CLI, alias `kimi-code`), `mistral` (Mistral Vibe), `antigravity` (Antigravity CLI, alias `agy`). Omit `provider` to use the harness the user selected on the Agents dashboard.\n\n**Models & reasoning effort** are harness- and model-specific and change over time. Fetch the live catalog (every provider's models and which reasoning-effort levels each accepts) from `GET /provider-models`. Some models accept no reasoning control. `pi`, `opencode` and `prime-agent` also expose models routed through OpenRouter and llmgateway (ids like `openrouter:anthropic/claude-sonnet-4.5`).\n\n**Conversations:** a sandbox runs many conversations in parallel, each with its own history. Set `new: true` to start a fresh conversation, or `conversationId` to continue a specific one; omit both to continue the sandbox's most-recently-active conversation. The response returns the `conversationId` this prompt ran in. Conversations run concurrently up to a per-sandbox limit that scales with the sandbox's memory; beyond it, prompts queue.\n",
         "required": [
-          "provider",
           "prompt"
         ],
         "properties": {
@@ -2356,7 +2355,9 @@
               "prime",
               "kimi",
               "kimi-code",
-              "mistral"
+              "mistral",
+              "antigravity",
+              "agy"
             ]
           },
           "model": {
@@ -4355,7 +4356,7 @@
               },
               "is_streaming": {
                 "type": "boolean",
-                "description": "True when this response is a streaming partial rather than the final assistant message."
+                "description": "True while the agent still writes this message. `content` is the text stored so far, not each word as it is written, and the event changes until the message is complete. For the text as the model writes it, use `GET /sandboxes/{sandboxId}/events/stream`, which never sends these partial events."
               },
               "is_reverted": {
                 "type": "boolean"
@@ -5375,6 +5376,68 @@
           }
         }
       },
+      "EventStreamFrame": {
+        "type": "object",
+        "description": "One line of `GET /sandboxes/{sandboxId}/events/stream` (application/x-ndjson).\n- `text_delta`: reply text as the model writes it. `conversationId`, `promptId`, `messageId`, `text`, and `offset`: the number of characters of `messageId` sent before this line. A stream that opens in the middle of a reply gets the text so far at `offset` 0.\n- `event`: one event, the same object that `GET /events` returns. It is sent again when the event changes (a tool result arrives): replace the event with the same `event.id`. `cursor` continues the stream after this event. `streamedMessageIds` names the `text_delta` messages whose text `event.data.content` now records: if you showed those texts, do not show the content again. Without `streamedMessageIds`, the text was not streamed: show the content.\n- `heartbeat`: sent after 15 s with no other line.\n- `done`: last line, only with `promptId`, when that prompt ended. `promptRun` is the object of `GET /sandboxes/{sandboxId}/prompts/{promptId}`.\n- `reconnect`: last line after 10 minutes. Open the stream again with its `cursor`.\n- `error`: last line on a failure. `error`, `message`.\n",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text_delta",
+              "event",
+              "heartbeat",
+              "done",
+              "reconnect",
+              "error"
+            ]
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "promptId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "messageId": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          },
+          "event": {
+            "$ref": "#/components/schemas/SandboxEvent"
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "streamedMessageIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "promptRun": {
+            "$ref": "#/components/schemas/PromptRun"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "CommandRecord": {
         "type": "object",
         "description": "One command run through the commands endpoint (kept 7 days), or one process of the sandbox with mode `process` (kept 72 hours). Readable while the sandbox is stopped.",
@@ -5877,7 +5940,7 @@
               "string",
               "null"
             ],
-            "description": "Harness the most recent prompt ran on (`claude`, `codex`, `pi`, `opencode`, `prime-agent`, `kimi`, `mistral`)."
+            "description": "Harness the most recent prompt ran on (`claude`, `codex`, `pi`, `opencode`, `prime-agent`, `kimi`, `mistral`, `antigravity`)."
           },
           "lastModel": {
             "type": [
@@ -7341,6 +7404,7 @@
           "mistral-api-key",
           "xai-api-key",
           "opencode-api-key",
+          "gemini-api-key",
           "claude-subscription",
           "chatgpt-subscription",
           "kimi-subscription",
@@ -13754,7 +13818,7 @@
           "Boat"
         ],
         "summary": "List boat events",
-        "description": "Return Sandbox work, lifecycle, and progress events so product UIs can show what the sandbox is doing. A Sandbox runs many conversations in parallel; this streams **all** of them by default and every event carries a `conversationId`. Filter to one or more with `conversation`. Event payloads are extensible. Clients can long-poll this endpoint with `sort=asc` and a cursor to stream responses. Response events expose agent text, streaming partials via `data.is_streaming`, and tool calls/results via `data.tools`. When you poll, send the last `ETag` back in `If-None-Match`. An unchanged page answers `304 Not Modified` with no body.",
+        "description": "Return Sandbox work, lifecycle, and progress events so product UIs can show what the sandbox is doing. A Sandbox runs many conversations in parallel; this streams **all** of them by default and every event carries a `conversationId`. Filter to one or more with `conversation`. Event payloads are extensible. To get the reply text as the model writes it, use `GET /sandboxes/{sandboxId}/events/stream`. To poll instead, read with `sort=asc` and a cursor. Response events hold the agent text in `data.content` and tool calls/results in `data.tools`; `data.is_streaming` is true on a message that the agent still writes. When you poll, send the last `ETag` back in `If-None-Match`. An unchanged page answers `304 Not Modified` with no body.",
         "operationId": "events",
         "parameters": [
           {
@@ -13890,6 +13954,77 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "402": {
+            "$ref": "#/components/responses/PaymentRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/sandboxes/{sandboxId}/events/stream": {
+      "get": {
+        "tags": [
+          "Boat"
+        ],
+        "summary": "Stream sandbox events",
+        "description": "The work of the agent as it happens, one JSON object per line: the reply text as the model writes it (`text_delta`) and each event of `GET /sandboxes/{sandboxId}/events` when it is stored or changes (`event`). Without `cursor` the stream starts now and does not replay history. After 10 minutes the stream ends with a `reconnect` line: open it again with its `cursor` to continue. One open stream replaces polling. An error before the stream starts is a normal JSON error response.",
+        "operationId": "eventsStream",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SandboxId"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Send the events after this cursor first. Use the `cursor` of an `event` or `reconnect` line, or a cursor of `GET /events`. Omit to start now."
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Comma-separated event type filter, for example `prompt,response,steer`. Text deltas are sent only when `response` passes the filter."
+          },
+          {
+            "name": "conversation",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only send events and text for this conversation id. Repeat the parameter (or comma-separate) for several. Omit to stream every conversation on the sandbox."
+          },
+          {
+            "name": "promptId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Only send the events and text of this prompt. The stream then ends with a `done` line when the prompt ends."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The event stream.",
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventStreamFrame"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
